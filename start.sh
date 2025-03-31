@@ -2,7 +2,7 @@
 # Script to run the American Law application
 
 # Activate the virtual environment
-source $(dirname $(pwd))/venv/bin/activate
+source venv/bin/activate
 
 # Set environment variables
 export PYTHONPATH=$PYTHONPATH:$(pwd)/..
@@ -17,4 +17,4 @@ echo "  Starting on port $PORT"
 echo "=================================================="
 
 # Start the FastAPI application with Uvicorn
-python -m uvicorn american_law.main:app --host 0.0.0.0 --port $PORT --reload 
+python -m uvicorn chatbot.main:app --host 0.0.0.0 --port $PORT --reload 

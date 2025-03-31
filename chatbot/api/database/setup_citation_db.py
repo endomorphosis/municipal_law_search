@@ -1,7 +1,8 @@
 from __future__ import annotations
 import os
 import sqlite3
-
+import duckdb
+from typing import Union, Any
 
 from chatbot.configs import configs
 
@@ -9,11 +10,33 @@ from chatbot.configs import configs
 citation_db_path = configs.AMERICAN_LAW_DATA_DIR / "american_law.db"
 
 
-def setup_citation_db():
-    # Create citation database
-    if not citation_db_path.exists():
+def setup_citation_db(db_path=None, use_duckdb=True) -> Union[sqlite3.Connection, duckdb.DuckDBPyConnection]:
+    """
+    Set up the citation database schema.
+    
+    Args:
+        db_path: Optional path to database file, defaults to citation_db_path
+        use_duckdb: Whether to use DuckDB (True) or SQLite (False)
+        
+    Returns:
+        Database connection object
+    """
+    # Use default path if none provided
+    db_path = db_path or citation_db_path
+    
+    # Use DuckDB if requested, otherwise fallback to SQLite
+    if use_duckdb:
+        return _setup_citation_db_duckdb(db_path)
+    else:
+        return _setup_citation_db_sqlite(db_path)
+
+
+def _setup_citation_db_sqlite(db_path: str) -> sqlite3.Connection:
+    """Setup citation database with SQLite."""
+    if not os.path.exists(db_path):
         # Connect to SQLite database
-        conn = sqlite3.connect(citation_db_path)
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
         # Create citations table based on the README specifications
@@ -44,28 +67,74 @@ def setup_citation_db():
         
         # Commit changes and close connection
         conn.commit()
-        conn.close()
-        print("Citation database created successfully.")
+        print("Citation database created successfully with SQLite.")
     else:
         print("Citation database already exists. Testing to see if it is accessible.")
         # Test if the database is accessible
         try:
             # Connect to SQLite database
-            conn = sqlite3.connect(citation_db_path)
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
             # Perform a schema query to check accessibility
             cursor.execute("PRAGMA table_info(citations);")
             result = cursor.fetchone()
-            print(result)
             
             if result:
                 print("Citation database is accessible.")
             else:
                 print("Citation database is not accessible.")
                 
-            # Close connection
-            conn.close()
         except sqlite3.Error as e:
             print(f"Error accessing citation database: {e}")
             raise e
+    
+    return conn
+
+
+def _setup_citation_db_duckdb(db_path: str) -> duckdb.DuckDBPyConnection:
+    """Setup citation database with DuckDB."""
+    # Connect to DuckDB database
+    conn = duckdb.connect(db_path)
+    
+    # Check if table exists
+    result = conn.execute('''
+    SELECT name FROM sqlite_master WHERE type='table' AND name='citations'
+    ''').fetchone()
+    
+    if not result:
+        # Create citations table based on the README specifications
+        conn.execute('''
+        CREATE TABLE citations (
+            id INTEGER PRIMARY KEY,
+            bluebook_cid VARCHAR NOT NULL,
+            cid VARCHAR NOT NULL,
+            title VARCHAR NOT NULL,
+            title_num VARCHAR,
+            date VARCHAR,
+            public_law_num VARCHAR,
+            chapter VARCHAR,
+            chapter_num VARCHAR,
+            history_note VARCHAR,
+            ordinance VARCHAR,
+            section VARCHAR,
+            enacted VARCHAR,
+            year VARCHAR,
+            place_name VARCHAR NOT NULL,
+            state_name VARCHAR NOT NULL,
+            state_code VARCHAR NOT NULL,
+            bluebook_state_code VARCHAR NOT NULL,
+            bluebook_citation VARCHAR NOT NULL,
+            index_level_0 INTEGER
+        )
+        ''')
+        
+        # Create a sequence for auto-incrementing IDs
+        conn.execute("CREATE SEQUENCE IF NOT EXISTS seq_citations_id")
+        
+        print("Citation database created successfully with DuckDB.")
+    else:
+        print("Citation database already exists in DuckDB.")
+
+    return conn

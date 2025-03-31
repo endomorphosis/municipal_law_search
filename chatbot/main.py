@@ -74,20 +74,36 @@ citation_db = configs.AMERICAN_LAW_DATA_DIR / "citation.db"
 html_db = configs.AMERICAN_LAW_DATA_DIR / "html.db"
 embeddings_db = configs.AMERICAN_LAW_DATA_DIR / "embeddings.db"
 
-def _get_db(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _get_db(db_path: str, use_duckdb: bool = True) -> Union[sqlite3.Connection, duckdb.DuckDBPyConnection]:
+    """
+    Get a database connection.
+    
+    Args:
+        db_path: Path to the database file
+        use_duckdb: Whether to use DuckDB (True) or SQLite (False)
+        
+    Returns:
+        Database connection object
+    """
+    if use_duckdb:
+        return duckdb.connect(db_path)
+    else:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 # Database connections
-def get_citation_db():
-    return _get_db(citation_db)
+def get_citation_db(use_duckdb: bool = True):
+    """Get connection to citation database."""
+    return _get_db(citation_db, use_duckdb)
 
-def get_html_db():
-    return _get_db(html_db)
+def get_html_db(use_duckdb: bool = True):
+    """Get connection to HTML database."""
+    return _get_db(html_db, use_duckdb)
 
-def get_embeddings_db():
-    return _get_db(embeddings_db)
+def get_embeddings_db(use_duckdb: bool = True):
+    """Get connection to embeddings database."""
+    return _get_db(embeddings_db, use_duckdb)
 
 
 # Pydantic models for request/response validation
