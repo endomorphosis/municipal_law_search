@@ -12,6 +12,7 @@ tools/
 CLAUDE.md
 deprecated/
 lawdb/
+.github/workflows/
 
 # pycache
 __pycache__/
