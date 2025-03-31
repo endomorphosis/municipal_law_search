@@ -1,0 +1,193 @@
+{
+  "jurisdictions": {
+    "0461214": {
+      "name": "Sample City 0461214",
+      "state": "SC",
+      "titles": {
+        "Title 1": {
+          "chapters": {
+            "Chapter 1": {
+              "sections": {
+                "Section 1.1": {
+                  "cid": "sample_cid_0",
+                  "enacted": "2020-01-1",
+                  "ordinance": "Ord-100"
+                }
+              }
+            },
+            "Chapter 2": {
+              "sections": {
+                "Section 2.1": {
+                  "cid": "sample_cid_1",
+                  "enacted": "2020-01-2",
+                  "ordinance": "Ord-101"
+                }
+              }
+            }
+          }
+        },
+        "Title 2": {
+          "chapters": {
+            "Chapter 3": {
+              "sections": {
+                "Section 3.1": {
+                  "cid": "sample_cid_2",
+                  "enacted": "2020-01-3",
+                  "ordinance": "Ord-102"
+                }
+              }
+            },
+            "Chapter 4": {
+              "sections": {
+                "Section 4.1": {
+                  "cid": "sample_cid_3",
+                  "enacted": "2020-01-4",
+                  "ordinance": "Ord-103"
+                }
+              }
+            }
+          }
+        },
+        "Title 3": {
+          "chapters": {
+            "Chapter 5": {
+              "sections": {
+                "Section 5.1": {
+                  "cid": "sample_cid_4",
+                  "enacted": "2020-01-5",
+                  "ordinance": "Ord-104"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "0477415": {
+      "name": "Sample City 0477415",
+      "state": "SC",
+      "titles": {
+        "Title 1": {
+          "chapters": {
+            "Chapter 1": {
+              "sections": {
+                "Section 1.1": {
+                  "cid": "sample_cid_0",
+                  "enacted": "2020-01-1",
+                  "ordinance": "Ord-100"
+                }
+              }
+            },
+            "Chapter 2": {
+              "sections": {
+                "Section 2.1": {
+                  "cid": "sample_cid_1",
+                  "enacted": "2020-01-2",
+                  "ordinance": "Ord-101"
+                }
+              }
+            }
+          }
+        },
+        "Title 2": {
+          "chapters": {
+            "Chapter 3": {
+              "sections": {
+                "Section 3.1": {
+                  "cid": "sample_cid_2",
+                  "enacted": "2020-01-3",
+                  "ordinance": "Ord-102"
+                }
+              }
+            },
+            "Chapter 4": {
+              "sections": {
+                "Section 4.1": {
+                  "cid": "sample_cid_3",
+                  "enacted": "2020-01-4",
+                  "ordinance": "Ord-103"
+                }
+              }
+            }
+          }
+        },
+        "Title 3": {
+          "chapters": {
+            "Chapter 5": {
+              "sections": {
+                "Section 5.1": {
+                  "cid": "sample_cid_4",
+                  "enacted": "2020-01-5",
+                  "ordinance": "Ord-104"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "0481691": {
+      "name": "Sample City 0481691",
+      "state": "SC",
+      "titles": {
+        "Title 1": {
+          "chapters": {
+            "Chapter 1": {
+              "sections": {
+                "Section 1.1": {
+                  "cid": "sample_cid_0",
+                  "enacted": "2020-01-1",
+                  "ordinance": "Ord-100"
+                }
+              }
+            },
+            "Chapter 2": {
+              "sections": {
+                "Section 2.1": {
+                  "cid": "sample_cid_1",
+                  "enacted": "2020-01-2",
+                  "ordinance": "Ord-101"
+                }
+              }
+            }
+          }
+        },
+        "Title 2": {
+          "chapters": {
+            "Chapter 3": {
+              "sections": {
+                "Section 3.1": {
+                  "cid": "sample_cid_2",
+                  "enacted": "2020-01-3",
+                  "ordinance": "Ord-102"
+                }
+              }
+            },
+            "Chapter 4": {
+              "sections": {
+                "Section 4.1": {
+                  "cid": "sample_cid_3",
+                  "enacted": "2020-01-4",
+                  "ordinance": "Ord-103"
+                }
+              }
+            }
+          }
+        },
+        "Title 3": {
+          "chapters": {
+            "Chapter 5": {
+              "sections": {
+                "Section 5.1": {
+                  "cid": "sample_cid_4",
+                  "enacted": "2020-01-5",
+                  "ordinance": "Ord-104"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

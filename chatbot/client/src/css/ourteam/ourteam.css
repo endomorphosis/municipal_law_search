@@ -1,0 +1,178 @@
+/* Our Team Page Styles */
+
+/* Import Tailwind CSS utilities - although the actual import happens in HTML */
+/* Font definitions based on imported Google Fonts */
+:root {
+    --font-poiret: 'Poiret One', sans-serif;
+    --font-cormorant: 'Cormorant Garamond', serif;
+    --primary-color: #043b6e;
+    --secondary-color: #0d6efd;
+    --text-color: #333;
+    --light-color: #e9ecef;
+    --light-bg: #f8f9fa;
+}
+
+.team-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    justify-content: center;
+    margin-top: 2rem;
+}
+
+/* Use more specific selectors with !important to override about.css */
+#ourteam-container .team-member {
+    width: 300px;
+    text-align: center;
+    background-color: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: block !important; /* Override display:flex from about.css */
+    transition: none !important; /* Force no transition */
+    transform: none !important; /* Force no transform */
+    animation: none !important; /* Disable any animations */
+    -webkit-animation: none !important;
+    -moz-animation: none !important;
+    -o-animation: none !important;
+    -ms-animation: none !important;
+    position: static !important; /* Prevent any position changes */
+}
+
+/* Explicitly prevent any hover effects */
+#ourteam-container .team-member:hover,
+#ourteam-container .team-member:active,
+#ourteam-container .team-member:focus {
+    transform: none !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+    transition: none !important;
+    animation: none !important;
+    -webkit-animation: none !important;
+    -moz-animation: none !important;
+    -o-animation: none !important;
+    -ms-animation: none !important;
+    position: static !important;
+}
+
+.team-photo {
+    width: 100%;
+    height: 200px;
+    background-color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.photo-placeholder {
+    font-size: 3rem;
+    color: white;
+    font-family: var(--font-poiret);
+}
+
+#ourteam-container .team-info {
+    padding: 1.5rem;
+    display: block !important;
+    align-items: unset !important;
+}
+
+#ourteam-container .team-name {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-family: var(--font-poiret);
+    color: var(--secondary-color);
+}
+
+#ourteam-container .team-role {
+    font-size: 1rem;
+    color: var(--primary-color);
+    margin-bottom: 1rem;
+    font-family: var(--font-cormorant);
+    font-weight: 500;
+}
+
+#ourteam-container .team-bio {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--text-color);
+    font-family: var(--font-cormorant);
+    margin-bottom: 1rem;
+}
+
+/* Social media links styling */
+#ourteam-container .team-social {
+    margin: 0.5rem 0;
+}
+
+#ourteam-container .team-social a {
+    display: inline-block;
+    font-family: var(--font-cormorant);
+    color: var(--secondary-color);
+    font-weight: 600;
+    text-decoration: none;
+    padding: 0.4rem 0.8rem;
+    margin: 0.2rem 0;
+    border-radius: 5px;
+    border: 1px solid var(--secondary-color);
+    background-color: rgba(13, 110, 253, 0.1);
+    transition: all 0.3s ease;
+    min-width: 180px;
+}
+
+#ourteam-container .team-social a i {
+    margin-right: 8px;
+    font-size: 1.1rem;
+}
+
+#ourteam-container .team-social a:hover {
+    background-color: var(--secondary-color);
+    color: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Section heading styles */
+.section h2 {
+    color: var(--secondary-color);
+    border-bottom: 2px solid var(--light-color);
+    padding-bottom: 0.5rem;
+    font-family: var(--font-poiret);
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.section p {
+    font-family: var(--font-cormorant);
+    font-size: 1.1rem;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+}
+
+/* Close button for the modal */
+.ourteam-close {
+    position: absolute;
+    right: 10px;
+    top: 5px;
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    z-index: 1001;
+    cursor: pointer;
+}
+
+.ourteam-close:hover,
+.ourteam-close:focus {
+    color: black;
+    text-decoration: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .team-container {
+        gap: 1rem;
+    }
+    
+    .team-member {
+        width: 100%;
+        max-width: 320px;
+    }
+}

@@ -1,0 +1,83 @@
+/* Disclaimer Button Styles */
+.disclaimer-btn {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    border: 1px solid #dee2e6;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+}
+
+/* About Button Styles */
+.about-btn {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    border: 1px solid #dee2e6;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: absolute;
+    top: 3.5rem;  /* Position it below the disclaimer button */
+    right: 1rem;
+}
+
+.disclaimer-btn:hover, .about-btn:hover {
+    background-color: #e9ecef;
+    color: #495057;
+}
+
+/* Disclaimer Modal Styles */
+.disclaimer-modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.7);
+}
+
+.disclaimer-modal-content {
+    position: relative;
+    background-color: #fefefe;
+    margin: 5% auto;
+    border: 1px solid #888;
+    width: 80%;
+    height: 80%;
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+    border-radius: 5px;
+}
+
+.disclaimer-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    border-radius: 5px;
+}
+
+.disclaimer-close {
+    position: absolute;
+    right: 10px;
+    top: 5px;
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    z-index: 1001;
+}
+
+.disclaimer-close:hover,
+.disclaimer-close:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
+}

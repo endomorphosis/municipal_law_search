@@ -1,0 +1,45 @@
+/* Menu dropdown styling */
+#menuToggleBtn {
+    cursor: pointer;
+    position: relative;
+    z-index: 20;
+    transition: transform 0.2s ease, color 0.2s ease;
+}
+
+#menuToggleBtn:hover {
+    transform: scale(1.1);
+}
+
+#menuToggleBtn:hover svg {
+    color: white !important;
+}
+
+/* Make SVG icon larger */
+#menuToggleBtn svg {
+    width: 4rem;
+    height: 4rem;
+}
+
+/* Rest of the styles */
+#menuDropdown {
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#menuDropdown.hidden {
+    display: none;
+}
+
+#menuDropdown:not(.hidden) {
+    display: block;
+}
+
+/* Enhanced button styles */
+#disclaimerBtn, #aboutBtn, #contactBtn, #ourTeamBtn {
+    transition: background-color 0.2s ease;
+}
+
+#disclaimerBtn:hover, #aboutBtn:hover, #contactBtn:hover, #ourTeamBtn:hover {
+    background-color: #f3f4f6;
+}
