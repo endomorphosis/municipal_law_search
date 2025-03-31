@@ -1,7 +1,7 @@
 import logging
 
 
-from configs import configs
+from chatbot.configs import configs
 
 
 _LEVEL = configs.LOG_LEVEL or logging.DEBUG # Default to DEBUG if not set in configs
