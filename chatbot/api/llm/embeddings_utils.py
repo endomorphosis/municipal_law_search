@@ -11,7 +11,7 @@ import sqlite3
 
 
 # Set up logging
-from chatbot.logger import logger
+from logger import logger
 
 
 class EmbeddingsManager:

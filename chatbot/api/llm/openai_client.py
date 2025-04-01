@@ -7,12 +7,11 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
-import logging
 from pathlib import Path
 import sqlite3
 
 
-from chatbot.logger import logger
+from logger import logger
 
 
 class OpenAIClient:
@@ -297,8 +296,10 @@ class OpenAIClient:
         
         # Build context for the prompt
         context_text = "Relevant legal information:\n\n"
+        references = "Citation(s):\n\n"
         for i, doc in enumerate(context_docs):
             context_text += f"[{i+1}] {doc.get('title', 'Untitled')} - {doc.get('place_name', 'Unknown location')}, {doc.get('state_name', 'Unknown state')}\n"
+            references += f"{i+1}. {doc.get('bluebook_citation', 'No citation available')}\n"
             context_text += f"Citation: {doc.get('bluebook_citation', 'No citation available')}\n"
             # Limit content to avoid excessively long prompts
             content = doc.get('content', '') or doc.get('html_content', '')
@@ -328,10 +329,16 @@ class OpenAIClient:
                     {"role": "user", "content": f"Question: {query}\n\n{context_text}"}
                 ]
             )
-            
+            if response.choices[0].message.content:
+                generated_response = response.choices[0].message.content.strip()
+                # Append the citations
+                generated_response += f"\n\n{references.strip()}"
+            else:
+                generated_response = "No response generated. Please try again."
+
             return {
                 "query": query,
-                "response": response.choices[0].message.content,
+                "response": generated_response,
                 "context_used": [doc.get('bluebook_citation', 'No citation') for doc in context_docs],
                 "model_used": self.model,
                 "total_tokens": response.usage.total_tokens

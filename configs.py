@@ -6,6 +6,7 @@ import yaml
 
 
 _ROOT_DIR = Path(__file__).parent.parent
+_REPO_NAME = "american_law_search"
 
 
 class Configs(BaseModel):
@@ -29,16 +30,17 @@ class Configs(BaseModel):
     HUGGING_FACE_USER_ACCESS_TOKEN: SecretStr
     OPENAI_API_KEY: SecretStr
     ROOT_DIR: DirectoryPath = _ROOT_DIR
-    AMERICAN_LAW_DIR: DirectoryPath = _ROOT_DIR / "american_law"
-    AMERICAN_LAW_DATA_DIR: DirectoryPath = _ROOT_DIR / "american_law" / "data"
-    HUGGING_FACE_REPO_ID: str = "the-ride-never-ends/american_law"
+    AMERICAN_LAW_DIR: DirectoryPath = _ROOT_DIR / _REPO_NAME
+    AMERICAN_LAW_DATA_DIR: DirectoryPath = _ROOT_DIR / _REPO_NAME / "chatbot" / "data"
+    PARQUET_FILES_DIR: DirectoryPath = _ROOT_DIR / _REPO_NAME / "chatbot" / "data" / "parquet_files"
+    HUGGING_FACE_REPO_ID: str = "the-ride-never-ends/american_municipal_law"
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     LOG_LEVEL: int = 10
 
 
 # Load the configs from the yaml and create an instance of the Configs class
-with open(_ROOT_DIR / "american_law" / "configs.yaml", "r") as config_file:
+with open(_ROOT_DIR / _REPO_NAME / "configs.yaml", "r") as config_file:
     config_dict = yaml.safe_load(config_file)
 
 configs = Configs(**config_dict)

@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 from pathlib import Path
 import sqlite3
+import traceback
 from typing import Optional, List, Dict, Any, Union
 
 
@@ -17,12 +18,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-from api.llm.interface import LLMInterface
+from chatbot.api.llm.interface import LLMInterface
 from configs import configs
 from logger import logger
-from api.database.setup_citation_db import setup_citation_db
-from api.database.setup_html_db import setup_html_db
-from api.database.setup_embeddings_db import setup_embeddings_db
+from chatbot.api.database.setup_citation_db import setup_citation_db
+from chatbot.api.database.setup_html_db import setup_html_db
+from chatbot.api.database.setup_embeddings_db import setup_embeddings_db
 
 # Load environment variables
 load_dotenv()
@@ -35,7 +36,6 @@ setup_citation_db()
 
 app = FastAPI(title="American Law API", description="API for accessing American law database")
 
-
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -46,8 +46,8 @@ app.add_middleware(
 )
 
 # Mount static files correctly
-app.mount("/src", StaticFiles(directory="client/src"), name="src")
-templates = Jinja2Templates(directory="client/public")
+app.mount("/src", StaticFiles(directory="chatbot/client/src"), name="src")
+templates = Jinja2Templates(directory="chatbot/client/public")
 
 
 # Initialize LLM interface if API key is available
@@ -70,9 +70,7 @@ except Exception as e:
     logger.error(f"Failed to initialize LLM interface: {e}")
     raise e
 
-citation_db = configs.AMERICAN_LAW_DATA_DIR / "citation.db"
-html_db = configs.AMERICAN_LAW_DATA_DIR / "html.db"
-embeddings_db = configs.AMERICAN_LAW_DATA_DIR / "embeddings.db"
+citation_db = html_db = embeddings_db = configs.AMERICAN_LAW_DATA_DIR / "american_law.db"
 
 def _get_db(db_path: str, use_duckdb: bool = True) -> Union[sqlite3.Connection, duckdb.DuckDBPyConnection]:
     """
@@ -153,7 +151,7 @@ async def index(request: Request):
 # Serve public assets directly:
 @app.get("/public/{filename:path}")
 async def serve_public_files(filename: str):
-    return FileResponse(f"client/public/{filename}")
+    return FileResponse(f"chatbot/client/public/{filename}")
 
 @app.get("/api/search", response_model=SearchResponse)
 async def search(
@@ -174,7 +172,7 @@ async def search(
             sql_query = sql_result.get("sql_query")
             
             # Add pagination to the generated SQL if it doesn't already have it
-            if sql_query and " LIMIT " not in sql_query.upper():
+            if sql_query and "LIMIT" not in sql_query.upper():
                 if ";" in sql_query:
                     sql_query = sql_query.replace(";", f" LIMIT {per_page} OFFSET {offset};")
                 else:
@@ -210,8 +208,8 @@ async def search(
                 # First, estimate the total count without pagination
                 count_query = f"SELECT COUNT(*) as total FROM ({sql_query.split('LIMIT')[0]}) as subquery"
                 cursor.execute(count_query)
-                total = cursor.fetchone()['total']
-                
+                total: tuple[tuple] = cursor.fetchone()
+
                 # Then execute the actual query with pagination
                 cursor.execute(sql_query)
                 
@@ -241,6 +239,7 @@ async def search(
             WHERE title LIKE ? OR chapter LIKE ? OR place_name LIKE ?
             ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
             total = citation_cursor.fetchone()['total']
+            logger.debug(f"Total results: {total}")
             
             # Get paginated results
             citation_cursor.execute('''
@@ -275,17 +274,20 @@ async def search(
                 })
             
             citation_conn.close()
-        
-        return {
+
+        output = {
             'results': results,
-            'total': total,
+            'total': total[0],
             'page': page,
             'per_page': per_page,
-            'total_pages': (total + per_page - 1) // per_page
+            'total_pages': (total[0] + per_page - 1) // per_page
         }
+        logger.debug(f"Search results: {output}")
+        return output
     
     except Exception as e:
         logger.error(f"Error in search: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/law/{law_id}", response_model=Union[LawItem, ErrorResponse])

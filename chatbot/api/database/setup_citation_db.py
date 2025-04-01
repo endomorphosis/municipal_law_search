@@ -4,13 +4,13 @@ import sqlite3
 import duckdb
 from typing import Union, Any
 
-from chatbot.configs import configs
+from configs import configs
 
 
 citation_db_path = configs.AMERICAN_LAW_DATA_DIR / "american_law.db"
 
 
-def setup_citation_db(db_path=None, use_duckdb=True) -> Union[sqlite3.Connection, duckdb.DuckDBPyConnection]:
+def setup_citation_db(db_path=None, use_duckdb=True) -> sqlite3.Connection | duckdb.DuckDBPyConnection:
     """
     Set up the citation database schema.
     
