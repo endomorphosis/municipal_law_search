@@ -17,6 +17,7 @@ lawdb/
 # pycache
 __pycache__/
 *.pyc
+*.wal
 
 # Virtual Environments
 venv
