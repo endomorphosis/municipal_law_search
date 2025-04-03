@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import os
 import sqlite3
 import traceback
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, NamedTuple, Union
 
 
 import duckdb
@@ -121,7 +121,7 @@ class LawItem(BaseModel):
     state_name: Optional[str] = None
     date: Optional[str] = None
     bluebook_citation: Optional[str] = None
-    content: str
+    html: str
 
 class LLMAskRequest(BaseModel):
     query: str
@@ -164,7 +164,6 @@ def _get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
     """
     """
     # Get the LLM to parse the plaintext query into a SQL command.
-    sql_query: str = None
     if use_llm and llm_interface and search_query.strip():
         logger.info(f"Converting query to SQL: {search_query}")
         sql_result = llm_interface.query_to_sql(search_query)
@@ -180,19 +179,29 @@ def _get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
         logger.info(f"Generated SQL query: {sql_query}")
     return sql_query
 
+def get_html_for_this_citation(row: dict|NamedTuple, read_only: bool) -> str:
+    html_conn = get_html_db(read_only=read_only)
+    html_cursor = html_conn.cursor()
+    if isinstance(row, dict):
+        html_cursor.execute('SELECT html FROM html WHERE cid = ? LIMIT 1', (row['cid'],))
+    else:
+        html_cursor.execute('SELECT html FROM html WHERE cid = ? LIMIT 1', (row.cid,))
+    html_result = html_cursor.fetchone()
+    html_conn.close()
+    return html_result
+
 
 @app.get("/api/search", response_model=SearchResponse)
 async def search(
-    search_query: str = Query("", description="Search query"),
+    q: str = Query("", description="Search query"),
     page: int = Query(1, description="Page number"),
     per_page: int = Query(20, description="Items per page"),
     use_llm: bool = Query(True, description="Use LLM to parse query into SQL")
 ):
-    query = search_query.lower()
+    query = q.lower()
     offset = (page - 1) * per_page
-    
+    logger.debug(f"Received search query: {query}")
     try:
-
         sql_query = _get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
             search_query=query,
             use_llm=use_llm,
@@ -239,12 +248,41 @@ async def search(
                     # Then execute the actual query with pagination
                     cursor.execute(sql_query)
                     
-                    for row in cursor.fetchdf().itertuples(index=False):
+                    html_set = set()
+                    for row in cursor.fetchdf().to_dict('records'):
                         logger.debug(f"type(row): {type(row)}\nRow: {row}")
-                        row_dict = dict(row)
-                        # Check if content exists and truncate if too long
-                        if 'content' in row_dict:
-                            row_dict['content'] = row_dict['content'][:500] + '...' if len(row_dict['content']) > 500 else row_dict['content']
+
+                        # Check what CIDs are in the row
+                        if "embedding_cid" in row.keys():
+                            has_embedding_cid = True
+
+                        if "bluebook_cid" in row.keys():
+                            row_dict = {
+                                'cid': row['cid'],
+                                'bluebook_cid': row['bluebook_cid'],
+                                'title': row['title'],
+                                'chapter': row['chapter'],
+                                'place_name': row['place_name'],
+                                'state_name': row['state_name'],
+                                'date': row['date'],
+                                'bluebook_citation': row['bluebook_citation']
+                            }
+
+                        # Check if html exists and truncate if too long
+                        if 'html' in row.keys():
+                            html = row['html']
+                        else:
+                            html = get_html_for_this_citation(row, read_only)
+
+                        if html is None:
+                            html = "Content not available"
+
+                        if html in html_set:
+                            continue
+                        else:
+                            html_set.add(html)
+
+                        row_dict['html'] = row_dict['html'][:500] + '...' if len(row_dict['html']) > 500 else row_dict['html']
                         results.append(row_dict)
                 
             except duckdb.BinderException as e:
@@ -254,7 +292,7 @@ async def search(
         
         # Fallback to standard search if LLM not used or SQL failed
         if not sql_query:
-            citation_conn = get_citation_db()
+            citation_conn = get_citation_db(read_only=read_only)
             citation_cursor = citation_conn.cursor()
             
             # Count total results
@@ -263,12 +301,12 @@ async def search(
             FROM citations
             WHERE title LIKE ? OR chapter LIKE ? OR place_name LIKE ?
             ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
-            total = citation_cursor.fetchone()['total']
+            total = citation_cursor.fetchone()[0]
             logger.debug(f"Total results: {total}")
             
             # Get paginated results
             citation_cursor.execute('''
-            SELECT id, title, chapter, place_name, state_name, date, 
+            SELECT bluebook_cid, title, chapter, place_name, state_name, date, 
                    bluebook_citation, cid
             FROM citations
             WHERE title LIKE ? OR chapter LIKE ? OR place_name LIKE ?
@@ -277,35 +315,37 @@ async def search(
             ''', (f'%{query}%', f'%{query}%', f'%{query}%', per_page, offset))
             
             results = []
-            for row in citation_cursor.fetchall():
-                # Get HTML content for this citation
-                html_conn = get_html_db()
-                html_cursor = html_conn.cursor()
-                html_cursor.execute('SELECT html FROM html WHERE cid = ? LIMIT 1', (row['cid'],))
-                html_result = html_cursor.fetchone()
-                html_conn.close()
-                
-                content = html_result['html'] if html_result else "Content not available"
-                
+            html_set = set()
+            for row in citation_cursor.fetchdf().itertuples(index=False):
+
+                html_result = get_html_for_this_citation(row, read_only)
+                html = html_result[0] if not html_result[0] else "Content not available"
+                if html in html_set:
+                    continue
+                else:
+                    html_set.add(html)
+
                 results.append({
-                    'id': row['id'],
-                    'title': row['title'],
-                    'chapter': row['chapter'],
-                    'place_name': row['place_name'],
-                    'state_name': row['state_name'],
-                    'date': row['date'],
-                    'bluebook_citation': row['bluebook_citation'],
-                    'content': content[:500] + '...' if len(content) > 500 else content
+                    'cid': row.cid,
+                    'title': row.title,
+                    'chapter': row.chapter,
+                    'place_name': row.place_name,
+                    'state_name': row.state_name,
+                    'date': row.date,
+                    'bluebook_citation': row.bluebook_citation,
+                    'html': html[:500] + '...' if len(html) > 500 else html
                 })
             
             citation_conn.close()
 
+        total_pages = total + per_page - 1
+        total_pages //= per_page 
         output = {
             'results': results,
             'total': total,
             'page': page,
             'per_page': per_page,
-            'total_pages': (total + per_page - 1) // per_page
+            'total_pages': total_pages
         }
         logger.debug(f"Search results: {output}")
         return output
@@ -339,7 +379,7 @@ async def get_law(law_id: int):
             'state_name': law['state_name'],
             'date': law['date'],
             'bluebook_citation': law['bluebook_citation'],
-            'content': law['content']
+            'html': law['html']
         }
     else:
         raise HTTPException(status_code=404, detail="Law not found")

@@ -12,7 +12,7 @@ import sqlite3
 
 
 from logger import logger
-
+from configs import configs, Configs
 
 class OpenAIClient:
     """
@@ -29,7 +29,8 @@ class OpenAIClient:
         temperature: float = 0.2,
         max_tokens: int = 1000,
         data_path: Optional[str] = None,
-        db_path: Optional[str] = None
+        db_path: Optional[str] = None,
+        configs: Optional[Configs] = None
     ):
         """
         Initialize the OpenAI client for American Law dataset RAG.
@@ -238,7 +239,7 @@ class OpenAIClient:
             cursor.execute('''
                 SELECT id, cid, title, chapter, place_name, state_name, date, 
                        bluebook_citation, content
-                FROM laws
+                FROM citations
                 WHERE search_text LIKE ?
                 ORDER BY place_name, title
                 LIMIT ?

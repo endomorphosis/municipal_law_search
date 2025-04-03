@@ -262,9 +262,10 @@ class EmbeddingsManager:
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT id, cid, title, chapter, place_name, state_name, date, 
-                       bluebook_citation, content
-                FROM laws
+                SELECT c.bluebook_cid, c.cid, c.title, c.chapter, c.place_name, c.state_name, c.date, 
+                       c.bluebook_citation, h.html
+                FROM citations c
+                INNER JOIN c.html h ON c.cid = h.cid
                 WHERE cid = ?
             ''', (cid,))
             
@@ -283,7 +284,7 @@ class EmbeddingsManager:
                 'state_name': row['state_name'],
                 'date': row['date'],
                 'bluebook_citation': row['bluebook_citation'],
-                'content': row['content']
+                'html': row['html']
             }
             
         except Exception as e:
