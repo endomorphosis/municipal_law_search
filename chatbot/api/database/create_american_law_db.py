@@ -15,7 +15,7 @@ from logger import logger
 from utils.run_in_process_pool import run_in_process_pool
 from chatbot.api.database.fix_parquet_files_in_parallel import fix_parquet_files_in_parallel
 
-
+MEMORY_LIMIT_IN_MBS = 40
 MISSING_DATE_CSV = configs.AMERICAN_LAW_DATA_DIR / 'missing_data.csv'
 AMERICAN_LAW_DB_PATH = configs.AMERICAN_LAW_DATA_DIR / 'american_law.db'
 CITATIONS_DB_PATH = configs.AMERICAN_LAW_DATA_DIR / 'citations.db'
@@ -264,46 +264,162 @@ def upload_files_to_database(parquet_list: list[list[tuple[str, Path]]]) -> None
     logger.info(f"Finished uploading parquet files to databases.")
 
 
-def merge_database_into_the_american_law_db(cursor: duckdb.DuckDBPyConnection):
+
+
+def merge_database_into_the_american_law_db(cursor: duckdb.DuckDBPyConnection) -> None:
     # Merge the databases into one 'american_law.db'
+    logger.info("Merging databases into american_law.db")
+    
     for name, db in DB_DICT.items():
-        db_path = db['path'].resolve()
-        cursor.execute(f"""
-            ATTACH '{db_path}' AS db1;
-            CREATE TABLE {name} AS SELECT * FROM db1.{name} WHERE 0;
-            DETACH db1;
-        """)
-        logger.info(f"Created table {name} in american_law.db")
-        try:
-            cursor.execute("BEGIN TRANSACTION")
-            cursor.execute(f"""
-                ATTACH '{db_path}' AS db1;
-                INSERT INTO {name}
-                SELECT * FROM db1.{name};
-                DETACH db1;
-            """)
-            cursor.execute('COMMIT;')
-            logger.info(f"Table {name} merged into american_law.db successfully.")
-        except Exception as e:
-            logger.error(f"Error merging {name} into american_law.db: {e}")
-            cursor.execute("ROLLBACK;")
+        if db["path"] is not None:
+            db_path = str(db['path'].resolve())
+            
+            # Skip if we're trying to attach the database to itself
+            if 'american_law.db' in str(db_path):
+                logger.info(f"Skipping {db_path} as it's the target database itself")
+                continue
+                
+            logger.info(f"Processing database {db_path} to merge into american_law.db")
+            
+            # Attach the database once for all operations
+            try:
+                cursor.execute(f"ATTACH '{db_path}' AS db1")
+                
+                # Create the destination table structure within a transaction
+                cursor.execute("BEGIN TRANSACTION")
+                try:
+                    cursor.execute(f"CREATE TABLE IF NOT EXISTS {name} AS SELECT * FROM db1.{name} WHERE 0")
+                    cursor.execute("COMMIT")
+                    logger.info(f"Created table {name} in american_law.db")
+                except Exception as e:
+                    cursor.execute("ROLLBACK")
+                    logger.error(f"Failed to create table structure for {name}: {e}")
+                    cursor.execute("DETACH db1")
+                    continue  # Skip to next table if structure creation fails
+                
+                # Get table statistics - DuckDB compatible approach
+                row_count = cursor.execute(f"SELECT COUNT(*) FROM db1.{name}").fetchone()[0]
+                
+                # Use a simple sampling approach to estimate size
+                try:
+                    # Sample first 100 rows to estimate average row size
+                    sample_data = cursor.execute(f"SELECT * FROM db1.{name} LIMIT 100").fetchall()
+                    sample_size = 0
+                    
+                    # Estimate size by converting to string
+                    for row in sample_data:
+                        for col in row:
+                            sample_size += len(str(col))
+                    
+                    avg_row_size = sample_size / len(sample_data) if sample_data else 0
+                    size_mb = (avg_row_size * row_count) / 1024 / 1024
+                except Exception as e:
+                    # Fallback if sampling fails
+                    logger.warning(f"Size estimation failed: {e}. Using row count for chunking.")
+                    size_mb = row_count / 10000  # Rough estimate: assume 10K rows per MB
+                    
+                logger.info(f"Table {name} has {row_count} rows taking approximately {size_mb:.2f} MB")
+                
+                # Calculate chunking
+                num_chunks = max(1, int(size_mb / MEMORY_LIMIT_IN_MBS) + 1)
+                chunk_size = max(1, row_count // num_chunks)
+                logger.info(f"Splitting {name} into {num_chunks} chunks for processing.")
+                
+                # Process each chunk
+                successful_rows = 0
+                for i in range(num_chunks):
+                    start_row = i * chunk_size
+                    # Calculate end for current chunk
+                    end_row = min(row_count, start_row + chunk_size)
+                    current_chunk_size = end_row - start_row
+                    
+                    logger.info(f"Processing chunk {i+1}/{num_chunks} of {name} table (rows {start_row}-{end_row})")
+                    try:
+                        cursor.execute("BEGIN TRANSACTION")
+                        cursor.execute(f"""
+                            INSERT INTO {name}
+                            SELECT * FROM db1.{name}
+                            LIMIT {current_chunk_size} OFFSET {start_row};
+                        """)
+                        cursor.execute("COMMIT")
+                        successful_rows += current_chunk_size
+                        logger.info(f"Chunk {i+1}/{num_chunks} of {name} merged successfully")
+                    except Exception as e:
+                        cursor.execute("ROLLBACK")
+                        logger.error(f"Error merging chunk {i+1}/{num_chunks} of {name}: {e}")
+                        # Option to retry this chunk with smaller batch
+                        if current_chunk_size > 100:
+                            logger.info(f"Retrying with smaller batches for chunk {i+1}")
+                            # Retry with smaller batches
+                            sub_batch_size = max(1, current_chunk_size // 10)
+                            for j in range(0, current_chunk_size, sub_batch_size):
+                                sub_start = start_row + j
+                                sub_size = min(sub_batch_size, start_row + current_chunk_size - sub_start)
+                                try:
+                                    cursor.execute("BEGIN TRANSACTION")
+                                    cursor.execute(f"""
+                                        INSERT INTO {name}
+                                        SELECT * FROM db1.{name}
+                                        LIMIT {sub_size} OFFSET {sub_start};
+                                    """)
+                                    cursor.execute("COMMIT")
+                                    successful_rows += sub_size
+                                    logger.info(f"Sub-batch {j//sub_batch_size + 1} of chunk {i+1} merged successfully")
+                                except Exception as sub_e:
+                                    cursor.execute("ROLLBACK")
+                                    logger.error(f"Sub-batch {j//sub_batch_size + 1} of chunk {i+1} failed: {sub_e}")
+                
+                # Verify the merge was successful
+                dest_count = cursor.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
+                if dest_count == row_count:
+                    logger.info(f"Table {name} merged successfully: {dest_count}/{row_count} rows transferred")
+                else:
+                    logger.warning(f"Table {name} merge incomplete: only {dest_count}/{row_count} rows transferred")
+                    
+            except Exception as e:
+                logger.error(f"Unexpected error processing table {name}: {e}")
+            finally:
+                # Always detach the database
+                try:
+                    cursor.execute("DETACH db1")
+                except Exception as e:
+                    logger.error(f"Error detaching database: {e}")
+                    
+    logger.info("Database merge operation completed")
 
 
-def create_american_law_db(base_path: Path):
+def create_american_law_db(base_path: Path = None):
     """Process the dataset and store in DuckDB database"""
-    with duckdb.connect(AMERICAN_LAW_DB_PATH) as conn:
-        with conn.cursor() as cursor:
-            make_the_databases()
+    if not AMERICAN_LAW_DB_PATH.exists():
+        logger.info(f"Creating new DuckDB database at {AMERICAN_LAW_DB_PATH}")
+        duckdb.connect(AMERICAN_LAW_DB_PATH).close()
+        logger.info("Database created successfully.")
+    else:
+        with duckdb.connect(AMERICAN_LAW_DB_PATH) as conn:
+            with conn.cursor() as cursor:
+                # Check if the database has any data in it.
+                cursor.execute("SELECT COUNT(*) FROM citations")
+                count = cursor.fetchone()[0]
+                if count > 0:
+                    logger.info("Database already contains data. Skipping creation.")
+                    return
+                else:
+                    logger.info("Database is empty. Proceeding with data upload.")
 
-            make_tables_in_the_databases()
+                    make_the_databases()
 
-            unique_gnis = get_all_the_unique_gnis_that_are_in_all_three_tables_in_the_database(cursor)
+                    make_tables_in_the_databases()
 
-            parquet_list = check_for_complete_set_of_parquet_files(unique_gnis, base_path)
+                    unique_gnis = get_all_the_unique_gnis_that_are_in_all_three_tables_in_the_database(cursor)
 
-            upload_files_to_database(parquet_list)
+                    parquet_list = check_for_complete_set_of_parquet_files(unique_gnis, base_path)
 
-            merge_database_into_the_american_law_db(cursor)
+                    upload_files_to_database(parquet_list)
+
+                    merge_database_into_the_american_law_db(cursor)
+
+
+    logger.info("All databases merged into american_law.db successfully.")
 
 
 if __name__ == "__main__":

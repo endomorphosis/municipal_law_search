@@ -1,9 +1,8 @@
-
-
-
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+from __future__ import annotations
 from dotenv import load_dotenv
 import os
-from pathlib import Path
 import sqlite3
 import traceback
 from typing import Optional, List, Dict, Any, Union
@@ -24,14 +23,16 @@ from logger import logger
 from chatbot.api.database.setup_citation_db import setup_citation_db
 from chatbot.api.database.setup_html_db import setup_html_db
 from chatbot.api.database.setup_embeddings_db import setup_embeddings_db
+from chatbot.api.database.create_american_law_db import create_american_law_db
+
 
 # Load environment variables
 load_dotenv()
 
 # Create necessary databases
-setup_embeddings_db()
-setup_html_db()
-setup_citation_db()
+# setup_embeddings_db()
+# setup_html_db()
+# setup_citation_db()
 
 
 app = FastAPI(title="American Law API", description="API for accessing American law database")
@@ -72,7 +73,7 @@ except Exception as e:
 
 citation_db = html_db = embeddings_db = configs.AMERICAN_LAW_DATA_DIR / "american_law.db"
 
-def _get_db(db_path: str, use_duckdb: bool = True) -> Union[sqlite3.Connection, duckdb.DuckDBPyConnection]:
+def _get_db(db_path: str, use_duckdb: bool = True, read_only: bool = True) -> Union[sqlite3.Connection, duckdb.DuckDBPyConnection]:
     """
     Get a database connection.
     
@@ -84,24 +85,24 @@ def _get_db(db_path: str, use_duckdb: bool = True) -> Union[sqlite3.Connection, 
         Database connection object
     """
     if use_duckdb:
-        return duckdb.connect(db_path)
+        return duckdb.connect(db_path, read_only=read_only)
     else:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         return conn
 
 # Database connections
-def get_citation_db(use_duckdb: bool = True):
+def get_citation_db(read_only: bool, use_duckdb: bool = True):
     """Get connection to citation database."""
-    return _get_db(citation_db, use_duckdb)
+    return _get_db(citation_db, use_duckdb, read_only)
 
-def get_html_db(use_duckdb: bool = True):
+def get_html_db(read_only: bool, use_duckdb: bool = True):
     """Get connection to HTML database."""
-    return _get_db(html_db, use_duckdb)
+    return _get_db(html_db, use_duckdb, read_only)
 
-def get_embeddings_db(use_duckdb: bool = True):
+def get_embeddings_db(read_only: bool, use_duckdb: bool = True):
     """Get connection to embeddings database."""
-    return _get_db(embeddings_db, use_duckdb)
+    return _get_db(embeddings_db, use_duckdb, read_only)
 
 
 # Pydantic models for request/response validation
@@ -153,35 +154,54 @@ async def index(request: Request):
 async def serve_public_files(filename: str):
     return FileResponse(f"chatbot/client/public/{filename}")
 
+
+def _get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
+        search_query: str, 
+        use_llm: bool = True, 
+        per_page: int = 20, 
+        offset: int = 0
+        ) -> Optional[str]:
+    """
+    """
+    # Get the LLM to parse the plaintext query into a SQL command.
+    sql_query: str = None
+    if use_llm and llm_interface and search_query.strip():
+        logger.info(f"Converting query to SQL: {search_query}")
+        sql_result = llm_interface.query_to_sql(search_query)
+        sql_query = sql_result.get("sql_query")
+        
+        # Add pagination to the generated SQL if it doesn't already have it
+        if sql_query and "LIMIT" not in sql_query.upper():
+            if ";" in sql_query:
+                sql_query = sql_query.replace(";", f" LIMIT {per_page} OFFSET {offset};")
+            else:
+                sql_query = f"{sql_query} LIMIT {per_page} OFFSET {offset}"
+        
+        logger.info(f"Generated SQL query: {sql_query}")
+    return sql_query
+
+
 @app.get("/api/search", response_model=SearchResponse)
 async def search(
-    q: str = Query("", description="Search query"),
+    search_query: str = Query("", description="Search query"),
     page: int = Query(1, description="Page number"),
     per_page: int = Query(20, description="Items per page"),
     use_llm: bool = Query(True, description="Use LLM to parse query into SQL")
 ):
-    query = q.lower()
+    query = search_query.lower()
     offset = (page - 1) * per_page
     
     try:
-        # Get the LLM to parse the plaintext query into a SQL command if requested
-        sql_query = None
-        if use_llm and llm_interface and q.strip():
-            logger.info(f"Converting query to SQL: {q}")
-            sql_result = llm_interface.query_to_sql(q)
-            sql_query = sql_result.get("sql_query")
-            
-            # Add pagination to the generated SQL if it doesn't already have it
-            if sql_query and "LIMIT" not in sql_query.upper():
-                if ";" in sql_query:
-                    sql_query = sql_query.replace(";", f" LIMIT {per_page} OFFSET {offset};")
-                else:
-                    sql_query = f"{sql_query} LIMIT {per_page} OFFSET {offset}"
-            
-            logger.info(f"Generated SQL query: {sql_query}")
-        
+
+        sql_query = _get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
+            search_query=query,
+            use_llm=use_llm,
+            per_page=per_page,
+            offset=offset
+        )
         results = []
         total = 0
+        read_only = True
 
         if sql_query:
             if "```sql" in sql_query:
@@ -189,41 +209,46 @@ async def search(
                 sql_query = sql_query.replace("```sql","").replace("```","").strip()
 
             # Determine which database to use based on the SQL query
-            db_conn = None
+            db_conn: duckdb.DuckDBPyConnection = None
             if "citations" in sql_query.lower():
-                db_conn = get_citation_db()
+                db_conn = get_citation_db(read_only)
             elif "html" in sql_query.lower():
-                db_conn = get_html_db()
+                db_conn = get_html_db(read_only)
             elif "embeddings" in sql_query.lower():
-                db_conn = get_embeddings_db()
+                db_conn = get_embeddings_db(read_only)
             else:
                 # Default to citation database
-                db_conn = get_citation_db()
-            
+                db_conn = get_citation_db(read_only)
+
             cursor = db_conn.cursor()
-            
+
+            #sql_result = llm_interface.query_to_sql(q)
+
             # Execute the generated SQL query
             logger.debug(f"sql_query: {sql_query}")
             try:
                 # First, estimate the total count without pagination
                 count_query = f"SELECT COUNT(*) as total FROM ({sql_query.split('LIMIT')[0]}) as subquery"
                 cursor.execute(count_query)
-                total: tuple[tuple] = cursor.fetchone()
+                total: tuple[tuple] = cursor.fetchone()[0]
+                logger.debug(f"Total results from SQL query: {total}")
 
-                # Then execute the actual query with pagination
-                cursor.execute(sql_query)
+                # If total is not zero, execute the actual query
+                if total != 0:
+
+                    # Then execute the actual query with pagination
+                    cursor.execute(sql_query)
+                    
+                    for row in cursor.fetchdf().itertuples(index=False):
+                        logger.debug(f"type(row): {type(row)}\nRow: {row}")
+                        row_dict = dict(row)
+                        # Check if content exists and truncate if too long
+                        if 'content' in row_dict:
+                            row_dict['content'] = row_dict['content'][:500] + '...' if len(row_dict['content']) > 500 else row_dict['content']
+                        results.append(row_dict)
                 
-                for row in cursor.fetchall():
-                    row_dict = dict(row)
-                    # Check if content exists and truncate if too long
-                    if 'content' in row_dict:
-                        row_dict['content'] = row_dict['content'][:500] + '...' if len(row_dict['content']) > 500 else row_dict['content']
-                    results.append(row_dict)
-                
-            except sqlite3.Error as e:
-                logger.error(f"SQL execution error: {e}")
-                # Fallback to standard search if SQL fails
-                sql_query = None
+            except duckdb.BinderException as e:
+                logger.error(f"duckdby.BinderException error: {e}")
             finally:
                 db_conn.close()
         
@@ -277,10 +302,10 @@ async def search(
 
         output = {
             'results': results,
-            'total': total[0],
+            'total': total,
             'page': page,
             'per_page': per_page,
-            'total_pages': (total[0] + per_page - 1) // per_page
+            'total_pages': (total + per_page - 1) // per_page
         }
         logger.debug(f"Search results: {output}")
         return output
@@ -289,6 +314,7 @@ async def search(
         logger.error(f"Error in search: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/law/{law_id}", response_model=Union[LawItem, ErrorResponse])
 async def get_law(law_id: int):
@@ -508,4 +534,4 @@ async def convert_to_sql(
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("chatbot.app:app", host="0.0.0.0", port=8080, reload=True)

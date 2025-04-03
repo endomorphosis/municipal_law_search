@@ -17,4 +17,4 @@ echo "  Starting on port $PORT"
 echo "=================================================="
 
 # Start the FastAPI application with Uvicorn
-python -m uvicorn chatbot.main:app --host 0.0.0.0 --port $PORT --reload 
+python -m uvicorn chatbot.app:app --host 0.0.0.0 --port $PORT --reload 
