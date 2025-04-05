@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+import asyncio
 import functools
 from dotenv import load_dotenv
 import os
@@ -23,16 +24,21 @@ from pydantic import AfterValidator as AV, BaseModel, BeforeValidator as BV, Fie
 
 from configs import configs
 from logger import logger
-from chatbot.api.llm.interface import LLMInterface
-from utils.app.format_initial_sql_return_from_search import format_initial_sql_return_from_search
-from utils.run_in_process_pool import run_in_process_pool, async_run_in_process_pool
-from utils.llm.cosine_similarity import cosine_similarity
+from chatbot.api.llm.async_interface import AsyncLLMInterface
+from utils.app.search.format_initial_sql_return_from_search import format_initial_sql_return_from_search
+from utils.app.search.get_embedding_cids_for_all_the_cids import get_embedding_cids_for_all_the_cids
+from utils.app.search.get_the_llm_to_parse_the_plaintext_query_into_a_sql_command import (
+    get_the_llm_to_parse_the_plaintext_query_into_a_sql_command
+)
+from utils.app.search.get_embedding_and_calculate_cosine_similarity import (
+    get_embedding_and_calculate_cosine_similarity
+)
 from utils.database.get_db import get_citation_db, get_html_db, get_embeddings_db
-from utils.app.get_embedding_and_calculate_cosine_similarity import get_embedding_and_calculate_cosine_similarity
+from utils.llm.cosine_similarity import cosine_similarity
 from utils.get_cid import get_cid
+from utils.run_in_process_pool import run_in_process_pool, async_run_in_process_pool
 
 
-ARBITRARY_SIMILARITY_SCORE_THRESHOLD = 0.8
 # Load environment variables
 load_dotenv()
 
@@ -76,7 +82,7 @@ except Exception as e:
     raise e
 
 try:
-    llm_interface = LLMInterface(
+    llm_interface = AsyncLLMInterface(
         api_key=configs.OPENAI_API_KEY.get_secret_value(),
         configs=configs
     )
@@ -86,8 +92,10 @@ except Exception as e:
     raise e
 
 
-
 class HtmlRow(BaseModel):
+    """
+    A Pydantic model representing a row in the 'html' table in html.db and american_law.db.
+    """
     cid: str = None
     doc_id: str = None
     doc_order: int = None
@@ -96,7 +104,10 @@ class HtmlRow(BaseModel):
     gnis: str | int  = None 
 
 
-class CitationRow(BaseModel):
+class CitationsRow(BaseModel):
+    """
+    A Pydantic model representing a row in the 'citations' table in citations.db and american_law.db.
+    """
     cid: str = None
     bluebook_cid: str = None
     title: str = None
@@ -119,6 +130,9 @@ class CitationRow(BaseModel):
 
 
 class EmbeddingsRow(BaseModel):
+    """
+    A Pydantic model representing a row in the 'embeddings' table in embeddings.db and american_law.db.
+    """
     embedding_cid: str = None
     cid: Optional[int] = None
     embedding: Optional[str] = None
@@ -129,7 +143,7 @@ class EmbeddingsRow(BaseModel):
 # def validate_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 #     reworked_results = []
 #     for row in results:
-#         for validator in [HtmlRow, CitationRow, EmbeddingsRow]:
+#         for validator in [HtmlRow, CitationsRow, EmbeddingsRow]:
 #             validator: BaseModel
 #             # Check how many keys there are.
 #             if len(row.keys()) == 1:
@@ -146,6 +160,14 @@ class EmbeddingsRow(BaseModel):
 
 # Pydantic models for request/response validation
 class SearchResponse(BaseModel):
+    """
+    Attributes:
+        results (List[Dict[str, Any]]): List of search results.
+        total (int): Total number of results.
+        page (int): Current page number.
+        per_page (int): Number of items per page.
+        total_pages (int): Total number of pages.
+    """
     results: List[Dict[str, Any]]
     total: int
     page: int
@@ -199,81 +221,11 @@ async def serve_public_files(filename: str):
 
 
 
-def _get_embedding_cids_for_all_the_cids(initial_results: list[dict]) -> list[dict]:
-    """
-    Retrieves embedding CIDs for all the provided CIDs from the embeddings database.
-
-    Args:
-        initial_results (list[dict]): A list of dictionaries, where each dictionary contains 
-                                      a 'cid' key representing the unique identifier.
-
-    Returns:
-        list[dict]: A list of dictionaries, where each dictionary contains the 'embedding_cid' 
-                    and 'cid' retrieved from the embeddings database.
-
-    Notes:
-        - The function establishes a read-only connection to the embeddings database.
-        - For each CID in the input list, it queries the database to fetch the corresponding 
-          embedding CIDs and appends the results to the output list.
-        - The database connection and cursor are properly closed after the operation.
-    """
-    # Get embeddings_cids for all the CIDs,
-    embeddings_conn = get_embeddings_db(read_only=True)
-    embeddings_cursor = embeddings_conn.cursor()
-    embedding_id_list: list[tuple] = []
-    for row in initial_results:
-        # Query the embeddings table using the current row's cid
-        embedding_ids: list[dict] = embeddings_cursor.execute('''
-            SELECT embedding_cid, cid
-            FROM embeddings 
-            WHERE cid = ?;
-        ''', (row['cid'],)).fetchdf().to_dict('records')[0]
-        embedding_id_list.append(embedding_ids)
-
-    embeddings_cursor.close()
-    embeddings_conn.close()
-    return embedding_id_list
 
 
 
-def _get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
-        search_query: str, 
-        use_llm: bool = True, 
-        per_page: int = 20, 
-        offset: int = 0
-        ) -> Optional[str]:
-    """
-    Converts a plaintext search query into a SQL command using an LLM.
-    This function takes a plaintext search query and uses an LLM to generate a SQL 
-    command. It also ensures that the generated SQL query includes pagination parameters 
-    (`LIMIT` and `OFFSET`) if they are not already present.
 
-    Args:
-        search_query (str): The plaintext search query to be converted into a SQL command.
-        use_llm (bool, optional): A flag to enable or disable the use of the LLM for query 
-            conversion. Defaults to True.
-        per_page (int, optional): The number of results to return per page. Defaults to 20.
-        offset (int, optional): The number of results to skip before starting to return rows. 
-            Defaults to 0.
-    Returns:
-        Optional[str]: The generated SQL query string with pagination applied, or None if the 
-        query could not be generated.
-    """
-    # Get the LLM to parse the plaintext query into a SQL command.
-    if use_llm and llm_interface and search_query.strip():
-        logger.info(f"Converting query to SQL: {search_query}")
-        sql_result = llm_interface.query_to_sql(search_query)
-        sql_query: str = sql_result.get("sql_query")
 
-        # Add pagination to the generated SQL if it doesn't already have it
-        if sql_query and "LIMIT" not in sql_query.upper():
-            if ";" in sql_query:
-                sql_query = sql_query.replace(";", f" LIMIT {per_page} OFFSET {offset};")
-            else:
-                sql_query = f"{sql_query} LIMIT {per_page} OFFSET {offset}"
-        
-        logger.info(f"Generated SQL query: {sql_query}")
-    return sql_query
 
 
 def _get_html_for_this_citation(row: dict | NamedTuple) -> str:
@@ -287,7 +239,8 @@ def _get_html_for_this_citation(row: dict | NamedTuple) -> str:
         read_only (bool): A flag indicating whether the database connection should be read-only.
 
     Returns:
-        str: The HTML content corresponding to the provided citation ID.
+        str: The HTML content corresponding to the provided citation ID. 
+            If none is available, returns "Content not available".
     """
     html_conn = get_html_db()
     with html_conn.cursor() as html_cursor:
@@ -297,7 +250,7 @@ def _get_html_for_this_citation(row: dict | NamedTuple) -> str:
             html_cursor.execute('SELECT html FROM html WHERE cid = ? LIMIT 1', (row.cid,))
         html_result = html_cursor.fetchone()
     html_conn.close()
-    return html_result
+    return html_result[0] if html_result is not None else "Content not available"
 
 
 def _fallback_search(query: str, per_page: int, offset: int) -> tuple[list[dict], int]:
@@ -330,8 +283,7 @@ def _fallback_search(query: str, per_page: int, offset: int) -> tuple[list[dict]
     html_set = set()
     for row in citation_cursor.fetchdf().itertuples(index=False):
 
-        html_result = _get_html_for_this_citation(row)
-        html = html_result[0] if not html_result[0] else "Content not available"
+        html: str = _get_html_for_this_citation(row)
         if html in html_set:
             continue
         else:
@@ -358,19 +310,20 @@ class SqlQueryResponse(BaseModel):
     total_tokens: int
 
 
-def _determine_user_intent(
+async def _determine_user_intent(
     query: str,
 ) -> str:
     """
-    Determine what a user wants to do with the search query.
+    Determine what a user wants to do with the search query asynchronously.
     This function will be used to determine if the user wants to search, ask a question, convert to SQL, etc.
     """
-    intent = llm_interface.determine_user_intent(query.lower())
+    intent = await llm_interface.determine_user_intent(query.lower())
     if intent is not None:
         logger.debug(f"User intent: {intent}")
         return intent
     else:
         raise ValueError("LLM was unable to determine user intent")
+
 
 
 @app.get("/api/search", response_model=SearchResponse)
@@ -390,20 +343,21 @@ async def search(
     logger.debug(f"Received search query: {query}")
 
     try:
-        _determine_user_intent(q)
+        await _determine_user_intent(q)
     except Exception as e:
         logger.error(f"Error determining user intent: {e}")
         raise HTTPException(status_code=400, detail="Unable to determine user intent")
 
     # Get an embedding of the query.
-    query_embedding: list[float] = llm_interface.openai_client.get_single_embedding(query)
+    query_embedding: list[float] = await llm_interface.openai_client.get_single_embedding(query)
 
     try:
-        sql_query = _get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
+        sql_query = await get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
             search_query=query,
             use_llm=use_llm,
             per_page=per_page,
-            offset=offset
+            offset=offset,
+            llm_interface=llm_interface
         )
         results = []
         total = 0
@@ -453,7 +407,7 @@ async def search(
                     for row in df_dict:
                         #logger.debug(f"type(row): {type(row)}\nRow: {row}")
 
-                        # If the CID isn't there or if it's already in the set
+                        # If the CID isn't there or if it's already in the set, continue.
                         if "cid" not in row.keys() or row['cid'] in cid_set:
                             continue
                         else:
@@ -464,7 +418,7 @@ async def search(
                             row_dict = format_initial_sql_return_from_search(row)
                             initial_results.append(row_dict)
 
-                    embedding_id_list: list[dict] = _get_embedding_cids_for_all_the_cids(initial_results)
+                    embedding_id_list: list[dict] = get_embedding_cids_for_all_the_cids(initial_results)
                     if not isinstance(embedding_id_list[0], dict):
                         logger.debug(f"type(embedding_id_list[0]): {type(embedding_id_list[0])}")
                         logger.debug(f"embedding_id_list: {embedding_id_list}")
@@ -482,19 +436,15 @@ async def search(
 
                     # Order the pull list by their cosine similarity score.
                     pull_list = sorted(pull_list, key=lambda x: x[1], reverse=True)
+                    logger.debug(f"pull_list: {pull_list}") 
 
                     results = []
-                    for cid in pull_list:
+                    for cid, _ in pull_list:
                         # Find the corresponding row in the initial results
                         for row_dict in initial_results:
                             if row_dict['cid'] == cid:
                                 # Get the HTML content for this citation
-                                html = _get_html_for_this_citation(row_dict)
-                                if html is None:
-                                    html = "Content not available"
-                                elif isinstance(html, tuple):
-                                    html = html[0]
-
+                                html: str = _get_html_for_this_citation(row_dict)
                                 if html in html_set:
                                     break
                                 else:
@@ -528,6 +478,7 @@ async def search(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 def make_query_hash_table():
     """
     Create a hash table for the citation database.
@@ -544,6 +495,19 @@ def make_query_hash_table():
             ''')
 
 
+def make_stats_table():
+    """
+    Create a stats table for the citation database.
+    """
+    with duckdb.connect(configs.AMERICAN_LAW_DB_PATH, read_only=True) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS stats (
+                run_cid VARCHAR PRIMARY KEY,
+                query_cid VARCHAR NOT NULL,
+                run_time DOUBLE NOT NULL,
+            )
+            ''')
 
 
 @app.get("/api/law/{cid}", response_model=Union[LawItem, ErrorResponse])
@@ -592,7 +556,7 @@ async def ask_question(request: LLMAskRequest) -> str:
     try:
         query = request.query
         
-        response = llm_interface.ask_question(
+        response = await llm_interface.ask_question(
             query=query,
             use_rag=request.use_rag,
             use_embeddings=request.use_embeddings,
@@ -605,6 +569,7 @@ async def ask_question(request: LLMAskRequest) -> str:
     except Exception as e:
         logger.error(f"Error in ask_question: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/llm/search-embeddings")
 async def search_embeddings(request: LLMSearchEmbeddingsRequest):
@@ -621,7 +586,7 @@ async def search_embeddings(request: LLMSearchEmbeddingsRequest):
     try:
         query = request.query
         
-        results = llm_interface.search_embeddings(
+        results = await llm_interface.search_embeddings(
             query=query,
             file_id=request.file_id,
             top_k=request.top_k
@@ -636,6 +601,7 @@ async def search_embeddings(request: LLMSearchEmbeddingsRequest):
     except Exception as e:
         logger.error(f"Error in search_embeddings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/llm/citation-answer")
 async def generate_citation_answer(request: LLMCitationAnswerRequest):
@@ -656,7 +622,7 @@ async def generate_citation_answer(request: LLMCitationAnswerRequest):
                 detail="No citation codes provided"
             )
         
-        response = llm_interface.generate_citation_answer(
+        response = await llm_interface.generate_citation_answer(
             query=request.query,
             citation_codes=request.citation_codes,
             system_prompt=request.system_prompt
@@ -667,6 +633,7 @@ async def generate_citation_answer(request: LLMCitationAnswerRequest):
     except Exception as e:
         logger.error(f"Error in generate_citation_answer: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/llm/status")
 async def llm_status():
@@ -685,6 +652,7 @@ async def llm_status():
             'reason': 'OpenAI API key not configured'
         }
 
+
 @app.get("/api/llm/sql")
 async def convert_to_sql(
     q: str = Query(..., description="Natural language query to convert to SQL"),
@@ -702,7 +670,7 @@ async def convert_to_sql(
     
     try:
         # Generate SQL query
-        sql_result = llm_interface.query_to_sql(q)
+        sql_result = await llm_interface.query_to_sql(q)
         sql_query = sql_result.get("sql_query")
         
         if not execute:
@@ -767,6 +735,7 @@ async def convert_to_sql(
     except Exception as e:
         logger.error(f"Error in convert_to_sql: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == '__main__':
     import uvicorn

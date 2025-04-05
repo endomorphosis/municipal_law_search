@@ -1,4 +1,4 @@
-# embeddings_utils.py: last updated 03:25 PM on March 31, 2025
+# embeddings_utils.py: last updated 12:42 AM on April 05, 2025
 
 **File Path:** `chatbot/api/llm/embeddings_utils.py`
 
@@ -26,8 +26,8 @@ Handles loading, processing, and searching embeddings in parquet files.
 
 **Constructor Parameters:**
 
-- `data_path` (`Optional[str]`): Path to the dataset files
-db_path: Path to the SQLite database
+- `configs` (`Optional[Configs]`): - data_path: Path to the dataset files
+- db_path: Path to the SQLite database
 
 **Methods:**
 

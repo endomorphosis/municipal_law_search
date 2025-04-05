@@ -2,21 +2,65 @@
 OpenAI Client implementation for American Law database.
 Provides integration with OpenAI APIs and RAG components for legal research.
 """
-from typing import Callable, List, Literal, Dict, Any, Never, Optional
-
+import os
+import numpy as np
+from typing import List, Dict, Any, Optional
+from openai import AsyncOpenAI
+import asyncio
+from pathlib import Path
+import sqlite3
+from typing import Annotated, Callable, Literal, Never
 
 import duckdb
 import numpy as np
-from openai import OpenAI
 import pandas as pd
 from pydantic import AfterValidator as AV, BaseModel, BeforeValidator as BV, computed_field, PrivateAttr, TypeAdapter, ValidationError
 import tiktoken
+import yaml
 
 
 from logger import logger
 from configs import configs, Configs
 from utils.chatbot.clean_html import clean_html
-from utils.llm.load_prompt_from_yaml import load_prompt_from_yaml, Prompt
+from utils.safe_format import safe_format
+from utils.llm.cosine_similarity import cosine_similarity 
+#from ._test_db import test_html_db
+
+#test_html_db()
+
+def validate_prompt(prompt: str) -> Never:
+    if "role" not in prompt:
+        raise ValidationError("Prompt must contain 'role' key.")
+    if "content" not in prompt:
+        raise ValidationError("Prompt must contain 'content' key.")
+
+class PromptFields(BaseModel):
+    role: str
+    content: str
+
+class Prompt(BaseModel):
+    client: Literal['openai']
+    system_prompt: PromptFields
+    user_prompt: PromptFields   
+
+    def safe_format(self, **kwargs) -> None:
+        if not kwargs:
+            return self.model_dump()
+        
+        sys_kwargs = {k: v for k, v in kwargs.items() if k in self.system_prompt.content}
+        user_kwargs = {k: v for k, v in kwargs.items() if k in self.user_prompt.content}
+
+        self.system_prompt.content = safe_format(self.system_prompt.content, **sys_kwargs)
+        self.user_prompt.content = safe_format(self.user_prompt.content, **user_kwargs)
+
+
+def _load_prompt_from_yaml(name: str, configs: Configs, **kwargs) -> Prompt:
+    prompt_dir = configs.PROMPTS_DIR
+    prompt_path = prompt_dir / f"{name}.yaml"
+
+    with open(prompt_path, 'r') as file:
+        prompt = dict(yaml.safe_load(file))
+        return Prompt.model_validate(prompt).safe_format(**kwargs)
 
 
 # From: https://platform.openai.com/docs/pricing
@@ -99,13 +143,8 @@ MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS = {
     }
 }
 
-def _calc_cost(x: int, cost_per_1M: float):
-    if cost_per_1M is None:
-        return 0
-    else:
-        return (x / 10**6) * cost_per_1M
 
-def calculate_cost(prompt: str, data: str, output: str, model: str) -> Optional[float]:
+def calculate_cost(prompt: str, data: str, out: str, model: str) -> Optional[int]:
     # Initialize the tokenizer for the GPT model
     if model not in MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS:
         logger.error(f"Model {model} not found in usage costs.")
@@ -117,62 +156,53 @@ def calculate_cost(prompt: str, data: str, output: str, model: str) -> Optional[
 
     tokenizer = tiktoken.encoding_for_model(model)
 
+    # request and response
+    request = str(prompt) + str(data)
+    response = str(out)
+
+    # Tokenize 
+    request_tokens = tokenizer.encode(request)
+    response_tokens = tokenizer.encode(response)
+
     # Counting the total tokens for request and response separately
-    input_tokens = len(tokenizer.encode(prompt + data))
-    output_tokens = len(tokenizer.encode(str(output)))
+    input_tokens = len(request_tokens)
+    output_tokens = len(response_tokens)
 
     # Actual costs per 1 million tokens
     cost_per_1M_input_tokens = MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS[model]["input"]
     cost_per_1M_output_tokens = MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS[model]["output"]
 
-    # Calculate the cost, then add them.
-    output_cost = _calc_cost(output_tokens, cost_per_1M_output_tokens)
-    input_cost = _calc_cost(input_tokens, cost_per_1M_input_tokens)
-    total_cost = round(input_cost + output_cost, 2) if total_cost > 0 else 0 
-    logger.debug(f"Total Cost: {total_cost} Cost breakdown:\n'input_tokens': {input_tokens}\n'output_tokens': {output_tokens}\n'input_cost': {input_cost}, 'output_cost': {output_cost}")
+    if cost_per_1M_output_tokens is None:
+        output_cost = 0
+    else:
+        output_cost = (output_tokens / 10**6) * cost_per_1M_output_tokens
+        
+    input_cost = (input_tokens / 10**6) * cost_per_1M_input_tokens
+    total_cost = input_cost + output_cost
     return total_cost
 
 
-class LLMOutput(BaseModel):
-    llm_response: str
-    system_prompt: str
-    user_message: str
-    context_used: int
-    response_parser: Callable
-
-    _configs: Configs = PrivateAttr(default=configs)
-
-    @computed_field # type: ignore[prop-decorator]
-    @property
-    def cost(self) -> float:
-        if self.llm_response is not None:
-            return calculate_cost(self.system_prompt, self.user_message, self.llm_response, self._configs.OPENAI_MODEL)
-        else: 
-            return 0
-
-    @computed_field # type: ignore[prop-decorator]
-    @property
-    def parsed_llm_response(self) -> Any:
-        return self.llm_response_parser(self.llm_response)
 
 
-class LLMInput(BaseModel):
-    client: BaseModel
-    user_message: str
+class AsyncLLMInput(BaseModel):
+    client: Any
+    user_message: str # NOTE For RAG, the found documents should be passed here.
     system_prompt: str = "You are a helpful assistant."
     use_rag: bool = False
     max_tokens: int = 4096
     temperature: float = 0 # Deterministic output
     response_parser: Callable = lambda x: x # This should be a partial function.
-    format_dict: Optional[dict] = None
+    formatting: Optional[str] = None
 
     _configs: Configs = PrivateAttr(default=configs)
 
-    @computed_field # type: ignore[prop-decorator]
-    @property
-    def response(self) -> Optional[LLMOutput]:
+    async def get_response(self) -> Optional[Any]:
+        if self.use_rag:
+            # Get an embedding of user_message (for future implementation)
+            self.user_message = self._use_rag()
+
         try:
-            _response = self.client.chat.completions.create(
+            _response = await self.client.chat.completions.create(
                 model=self._configs.OPENAI_MODEL,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
@@ -186,31 +216,26 @@ class LLMInput(BaseModel):
             return "Error generating response. Please try again."
 
         if _response.choices[0].message.content:
-            return LLMOutput(
+            return AsyncLLMOutput(
                 response=_response.choices[0].message.content.strip(),
                 system_prompt=self.system_prompt.strip(),
                 user_message=self.user_message,
                 context_used=_response.usage.total_tokens,
                 model=self._configs.OPENAI_MODEL,
-                response_parser=self.llm_response_parser,
+                response_parser=self.response_parser,
             )
         else:
             return "No response generated. Please try again."
 
-    @computed_field # type: ignore[prop-decorator]
-    @property
-    def embedding(self) -> List[float]:
+    async def _get_embedding(self) -> List[float]:
         """
-        Generate an embedding for the user's message.
+        Generate an embedding of the user's message.
         
-        Args:
-            text: Text string to generate an embedding for
-            
         Returns:
             Embedding vector
         """
         try:
-            embeddings = self.client.embeddings.create(
+            response = await self.client.embeddings.create(
                 input=self.user_message,
                 model=self._configs.OPENAI_EMBEDDING_MODEL
             )
@@ -218,20 +243,70 @@ class LLMInput(BaseModel):
             logger.error(f"{type(e)} generating embedding: {e}")
             return []
 
-        if embeddings.data[0].embedding:
-            return embeddings.data[0].embedding
+        if response.data[0].embedding:
+            return response.data[0].embedding
         else:
             logger.error("No embedding generated. Please try again.")
             return []
 
+    async def _use_rag(self, user_message: str, system_message: str) -> Optional[tuple[str, str]]:
+        """
+        Use RAG to find relevant documents and generate a response.
+        
+        Args:
+            user_message: The user's message
+            system_message: The system prompt
+        """
+        user_message = user_message.strip('\n').strip()
 
-class LLMEngine(BaseModel):
-    pass
+
+class AsyncLLMOutput(BaseModel):
+    response: str
+    system_prompt: str
+    user_message: str
+    context_used: int
+    model: str
+    response_parser: Callable
+
+    _configs: Configs = PrivateAttr(default=configs)
+
+    @computed_field # type: ignore[prop-decorator]
+    @property
+    def cost(self) -> float:
+        if self.response is not None:
+            return calculate_cost(self.system_prompt, self.user_message, self.response, self.model)
+        else: 
+            return 0
+
+    async def get_parsed_response(self) -> Any:
+        """Asynchronously parse the response using the provided parser"""
+        return self.response_parser(self.response)
 
 
-class OpenAIClient:
+class LLMOutput(BaseModel):
+    response: str
+    system_prompt: str
+    user_message: str
+    context_used: int
+    response_parser: Callable
+
+    _configs: Configs = PrivateAttr(default=configs)
+
+    @computed_field # type: ignore[prop-decorator]
+    @property
+    def cost(self) -> float:
+        if self.response is not None:
+            return calculate_cost(self.system_prompt, self.user_message, self.response, self._configs.OPENAI_MODEL)
+        else: 
+            return 0
+
+    def response(self) -> Any:
+        return self.response_parser(self.response)
+
+
+class AsyncOpenAIClient:
     """
-    Client for OpenAI API integration with RAG capabilities for the American Law dataset.
+    Asynchronous client for OpenAI API integration with RAG capabilities for the American Law dataset.
     Handles embeddings integration and semantic search against the law database.
     """
     
@@ -255,30 +330,29 @@ class OpenAIClient:
             embedding_dimensions: Dimensions of the embedding vectors
             temperature: Temperature setting for LLM responses
             max_tokens: Maximum tokens for LLM responses
-            data_path: Path to the American Law dataset files
-            db_path: Path to the SQLite database
+            configs: Configuration object
         """
         self.configs = configs
 
-        self.api_key = api_key
+        self.api_key: str = api_key
         if not self.api_key:
             raise ValueError("OpenAI API key must be provided either as an argument or in the OPENAI_API_KEY environment variable")
         
-        self.client = OpenAI(api_key=self.api_key)
-        self.model = model
-        self.embedding_model = embedding_model
-        self.embedding_dimensions = embedding_dimensions
-        self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.client = AsyncOpenAI(api_key=self.api_key)
+        self.model: str = model
+        self.embedding_model: str = embedding_model
+        self.embedding_dimensions: int = embedding_dimensions
+        self.temperature: float = temperature
+        self.max_tokens: int = max_tokens
         
         # Set data paths
-        self.data_path = configs.AMERICAN_LAW_DATA_DIR
-        self.db_path = configs.AMERICAN_LAW_DB_PATH
+        self.data_path: Path = configs.AMERICAN_LAW_DATA_DIR
+        self.db_path: Path = configs.AMERICAN_LAW_DB_PATH
 
-        logger.info(f"Initialized OpenAI client: LLM model: {model}, embedding model: {embedding_model}")
+        logger.info(f"Initialized AsyncOpenAI client: LLM model: {model}, embedding model: {embedding_model}")
 
 
-    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+    async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
         Generate embeddings for a list of text inputs using OpenAI's embedding model.
         
@@ -293,10 +367,10 @@ class OpenAIClient:
         
         try:
             # Prepare texts by stripping whitespace and handling empty strings
-            processed_texts = [text.strip('\n').strip() for text in texts]
+            processed_texts = [text.strip() for text in texts]
             processed_texts = [text if text else " " for text in processed_texts]
 
-            response = self.client.embeddings.create(
+            response = await self.client.embeddings.create(
                 input=processed_texts,
                 model=self.embedding_model
             )
@@ -308,9 +382,9 @@ class OpenAIClient:
         except Exception as e:
             logger.error(f"Error generating embeddings: {e}")
             raise
+    
 
-
-    def get_single_embedding(self, text: str) -> List[float]:
+    async def get_single_embedding(self, text: str) -> List[float]:
         """
         Generate an embedding for a single text input.
         
@@ -320,11 +394,12 @@ class OpenAIClient:
         Returns:
             Embedding vector
         """
-        embeddings = self.get_embeddings([text])
-        return embeddings[0] if embeddings[0] is not None else []
+        embeddings = await self.get_embeddings([text])
+        if embeddings:
+            return embeddings[0]
+        return []
 
-
-    def search_embeddings(
+    async def search_embeddings(
         self, 
         query: str, 
         gnis: Optional[str] = None, 
@@ -342,7 +417,7 @@ class OpenAIClient:
             List of relevant documents with similarity scores
         """
         # Generate embedding for the query
-        query_embedding = self.get_single_embedding(query)
+        query_embedding = await self.get_single_embedding(query)
         
         results = []
 
@@ -382,19 +457,19 @@ class OpenAIClient:
             if gnis:
                 sql_query += f" AND c.gnis = '{gnis}'"
                 
-                sql_query += f"""
-                )
-                SELECT * FROM similarity_scores
-                ORDER BY similarity_score DESC
-                LIMIT {top_k}
-                """
+            sql_query += """
+            )
+            SELECT * FROM similarity_scores
+            ORDER BY similarity_score DESC
+            LIMIT {top_k}
+            """
                 
             # Execute the query with the embedding as parameter
-            results_list = conn.execute(sql_query, [query_embedding]).fetchdf().to_dict('records')
+            result_df = conn.execute(sql_query, [query_embedding]).fetchdf()
             
             # Convert to list of dictionaries
             results = []
-            for row in results_list:
+            for _, row in result_df.iterrows():
                 results.append({
                     'id': row['id'],
                     'cid': row['cid'],
@@ -415,7 +490,7 @@ class OpenAIClient:
             logger.error(f"Error searching embeddings with DuckDB: {e}")
             return []
         
-    def query_database(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    async def query_database(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
         Query the database for relevant laws using DuckDB.
         
@@ -427,26 +502,34 @@ class OpenAIClient:
             List of matching law records
         """
         try:
+            
             # Connect to the database - DuckDB can also connect to SQLite files
-            with duckdb.connect(self.db_path, read_only=True) as conn:
-                # Simple text search
-                sql_query = f"""
-                    SELECT id, cid, title, chapter, place_name, state_name, date, 
-                        bluebook_citation, content
-                    FROM citations
-                    WHERE lower(search_text) LIKE '%{query.lower()}%'
-                    ORDER BY place_name, title
-                    LIMIT {limit}
-                """
-                # Execute query and fetch results
-                results = conn.execute(sql_query).fetchdf().to_dict('records')
+            conn = duckdb.connect(self.db_path, read_only=True)
+            
+            # Simple text search
+            sql_query = f"""
+                SELECT id, cid, title, chapter, place_name, state_name, date, 
+                       bluebook_citation, content
+                FROM citations
+                WHERE lower(search_text) LIKE '%{query.lower()}%'
+                ORDER BY place_name, title
+                LIMIT {limit}
+            """
+            # Execute query and fetch results
+            result_df = conn.execute(sql_query).fetchdf()
+            
+            # Convert DataFrame to list of dictionaries
+            results = result_df.to_dict('records')
+            
+            conn.close()
             return results
+            
         except Exception as e:
             logger.error(f"Error querying database with DuckDB: {e}")
             return []
 
 
-    def generate_rag_response(
+    async def generate_rag_response(
         self, 
         query: str, 
         use_embeddings: bool = True,
@@ -470,10 +553,10 @@ class OpenAIClient:
         
         if use_embeddings:
             # Use embedding-based semantic search
-            context_docs = self.search_embeddings(query, top_k=top_k)
+            context_docs = await self.search_embeddings(query, top_k=top_k)
         else:
             # Use database text search as fallback
-            context_docs = self.query_database(query, limit=top_k)
+            context_docs = await self.query_database(query, limit=top_k)
 
         # Build context for the prompt
         context_text = "Relevant legal information:\n\n"
@@ -500,33 +583,32 @@ class OpenAIClient:
     acknowledge the limitations of the available information and suggest what additional 
     information might be helpful.
     For legal citations, use Bluebook format when available. Be concise but thorough.
-        """
+            """
+
         # Generate response using OpenAI
-        prompt: Prompt = load_prompt_from_yaml(
-            "generate_rag_response", 
-            self.configs, 
-            query=query, 
-            context=context_text
-        )
+        prompt = _load_prompt_from_yaml("generate_rag_response", self.configs, query=query, context=context_text)
         try:
-            output = LLMInput(
-                client=self.client,
-                user_message=prompt.user_prompt.content,
-                system_prompt=prompt.system_prompt.content,
-                max_tokens=prompt.settings.max_tokens,
-                temperature=prompt.settings.temperature,
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                messages=[
+                    {"role": "system", "content": system_prompt.strip()},
+                    {"role": "user", "content": f"Question: {query}\n\n{context_text}"}
+                ]
             )
-            output = output.response
-
+            
+            generated_response = response.choices[0].message.content.strip()
+            
             # Append the citations
-            generated_response += f"\n\n{references.strip()}" if output is not None else "No response generated. Please try again."
-
+            generated_response += f"\n\n{references.strip()}"
+            
             return {
                 "query": query,
                 "response": generated_response,
                 "context_used": [doc.get('bluebook_citation', 'No citation') for doc in context_docs],
                 "model_used": self.model,
-                "total_tokens": output.usage.total_tokens
+                "total_tokens": response.usage.total_tokens
             }
             
         except Exception as e:

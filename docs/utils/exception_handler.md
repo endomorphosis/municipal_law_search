@@ -1,4 +1,4 @@
-# exception_handler.py: last updated 03:25 PM on March 31, 2025
+# exception_handler.py: last updated 12:47 AM on April 05, 2025
 
 **File Path:** `utils/exception_handler.py`
 

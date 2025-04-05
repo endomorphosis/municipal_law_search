@@ -2,7 +2,7 @@ from typing import Optional, Generator
 
 
 import duckdb
-
+import numpy as np
 
 from logger import logger
 from configs import configs
@@ -15,7 +15,7 @@ _ARBITRARY_SIMILARITY_SCORE_THRESHOLD = 0.5
 def get_embedding_and_calculate_cosine_similarity(
     embedding_data: dict[str, str],
     query_embedding: list[float] = None,
-) -> Optional[tuple[str,str]]:
+) -> Optional[tuple[str, float]]:
     """
     Calculate the cosine similarity between a query embedding and a given embedding.
 
@@ -51,17 +51,17 @@ def get_embedding_and_calculate_cosine_similarity(
                     logger.debug(f"No embedding found for the given CID {cid}.")
                     return None
 
-                embedding_vector = embedding.get("embedding")
-                if embedding_vector is None:
+                law_embedding = embedding.get("embedding")
+                if law_embedding is None:
                     return None
 
                 # Calculate the cosine similarity
-                similarity_score = cosine_similarity(query_embedding, embedding_vector)
+                similarity_score: np.float64 = cosine_similarity(query_embedding, law_embedding)
                 logger.debug(f"\nCosine similarity score: {similarity_score}")
 
                 # Yield the CID if the similarity score exceeds the threshold
                 if similarity_score >= _ARBITRARY_SIMILARITY_SCORE_THRESHOLD:
-                    return cid, similarity_score
+                    return cid, similarity_score.item()
                 else:
                     return None
 

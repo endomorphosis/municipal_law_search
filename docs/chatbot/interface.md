@@ -1,4 +1,4 @@
-# interface.py: last updated 03:25 PM on March 31, 2025
+# interface.py: last updated 12:42 AM on April 05, 2025
 
 **File Path:** `chatbot/api/llm/interface.py`
 
@@ -9,9 +9,31 @@ Provides access to OpenAI-powered legal research and RAG components.
 
 ## Table of Contents
 
+### Functions
+
+- [`_validate_and_correct_sql_query_string`](#_validate_and_correct_sql_query_string)
+
 ### Classes
 
 - [`LLMInterface`](#llminterface)
+
+## Functions
+
+## `_validate_and_correct_sql_query_string`
+
+```python
+def _validate_and_correct_sql_query_string(sql_query, fix_broken_queries)
+```
+
+Validate and correct a SQL query string.
+
+**Parameters:**
+
+- `sql_query` (`str`): The SQL query string to validate
+
+**Returns:**
+
+- `Optional[str]`: True if valid, False otherwise
 
 ## Classes
 
@@ -34,15 +56,23 @@ db_path: Path to the SQLite database
 
 **Methods:**
 
+- [`_generic_response`](#llminterface_generic_response)
 - [`ask_question`](#llminterfaceask_question)
+- [`determine_user_intent`](#llminterfacedetermine_user_intent)
 - [`generate_citation_answer`](#llminterfacegenerate_citation_answer)
 - [`query_to_sql`](#llminterfacequery_to_sql)
 - [`search_embeddings`](#llminterfacesearch_embeddings)
 
+### `_generic_response`
+
+```python
+def _generic_response(self, message, system_prompt)
+```
+
 ### `ask_question`
 
 ```python
-def ask_question(self, query, use_rag, use_embeddings, context_limit, custom_system_prompt)
+def ask_question(self, query, use_rag, use_embeddings, document_limit, custom_system_prompt)
 ```
 
 Ask a question about American law.
@@ -52,12 +82,28 @@ Ask a question about American law.
 - `query` (`str`): User's question
 use_rag: Whether to use Retrieval Augmented Generation
 use_embeddings: Whether to use embeddings search for RAG
-context_limit: Maximum number of context documents to include
+document_limit: Maximum number of context documents to include
 custom_system_prompt: Custom system prompt for LLM
 
 **Returns:**
 
 - `Dict[(str, Any)]`: Dictionary with the generated response and additional information
+
+### `determine_user_intent`
+
+```python
+def determine_user_intent(self, message)
+```
+
+Determine the user's intent based on the query.
+
+**Parameters:**
+
+- `query` (`Any`): User's input query
+
+**Returns:**
+
+- `str`: Intent type as a string
 
 ### `generate_citation_answer`
 

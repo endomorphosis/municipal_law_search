@@ -1,4 +1,4 @@
-# openai_client.py: last updated 03:25 PM on March 31, 2025
+# openai_client.py: last updated 12:42 AM on April 05, 2025
 
 **File Path:** `chatbot/api/llm/openai_client.py`
 
@@ -9,11 +9,95 @@ Provides integration with OpenAI APIs and RAG components for legal research.
 
 ## Table of Contents
 
+### Functions
+
+- [`_calc_cost`](#_calc_cost)
+- [`calculate_cost`](#calculate_cost)
+
 ### Classes
 
+- [`LLMOutput`](#llmoutput)
+- [`LLMInput`](#llminput)
+- [`LLMEngine`](#llmengine)
 - [`OpenAIClient`](#openaiclient)
 
+## Functions
+
+## `_calc_cost`
+
+```python
+def _calc_cost(x, cost_per_1M)
+```
+
+## `calculate_cost`
+
+```python
+def calculate_cost(prompt, data, output, model)
+```
+
 ## Classes
+
+## `LLMOutput`
+
+```python
+class LLMOutput(BaseModel)
+```
+
+**Methods:**
+
+- [`cost`](#llmoutputcost) (property)
+- [`parsed_llm_response`](#llmoutputparsed_llm_response) (property)
+
+### `cost`
+
+```python
+def cost(self, self)
+```
+
+### `parsed_llm_response`
+
+```python
+def parsed_llm_response(self, self)
+```
+
+## `LLMInput`
+
+```python
+class LLMInput(BaseModel)
+```
+
+**Methods:**
+
+- [`embedding`](#llminputembedding) (property)
+- [`response`](#llminputresponse) (property)
+
+### `embedding`
+
+```python
+def embedding(self, self)
+```
+
+Generate an embedding for the user's message.
+
+**Parameters:**
+
+- `text` (`Any`): Text string to generate an embedding for
+
+**Returns:**
+
+- `List[float]`: Embedding vector
+
+### `response`
+
+```python
+def response(self, self)
+```
+
+## `LLMEngine`
+
+```python
+class LLMEngine(BaseModel)
+```
 
 ## `OpenAIClient`
 
@@ -26,7 +110,7 @@ Handles embeddings integration and semantic search against the law database.
 
 **Constructor Parameters:**
 
-- `api_key` (`Optional[str]`): OpenAI API key (defaults to OPENAI_API_KEY env variable)
+- `api_key` (`str`): OpenAI API key (defaults to OPENAI_API_KEY env variable)
 model: OpenAI model to use for completion/chat
 embedding_model: OpenAI model to use for embeddings
 embedding_dimensions: Dimensions of the embedding vectors
@@ -42,12 +126,11 @@ db_path: Path to the SQLite database
 - [`get_single_embedding`](#openaiclientget_single_embedding)
 - [`query_database`](#openaiclientquery_database)
 - [`search_embeddings`](#openaiclientsearch_embeddings)
-- [`vector_similarity`](#openaiclientvector_similarity)
 
 ### `generate_rag_response`
 
 ```python
-def generate_rag_response(self, query, use_embeddings, context_limit, system_prompt)
+def generate_rag_response(self, query, use_embeddings, top_k, system_prompt)
 ```
 
 Generate a response using RAG (Retrieval Augmented Generation).
@@ -56,7 +139,7 @@ Generate a response using RAG (Retrieval Augmented Generation).
 
 - `query` (`str`): User query
 use_embeddings: Whether to use embeddings for search
-context_limit: Number of context documents to include
+top_k: Number of context documents to include
 system_prompt: Custom system prompt
 
 **Returns:**
@@ -101,7 +184,7 @@ Generate an embedding for a single text input.
 def query_database(self, query, limit)
 ```
 
-Query the SQLite database for relevant laws.
+Query the database for relevant laws using DuckDB.
 
 **Parameters:**
 
@@ -129,20 +212,3 @@ top_k: Number of top results to return
 **Returns:**
 
 - `List[Dict[(str, Any)]]`: List of relevant documents with similarity scores
-
-### `vector_similarity`
-
-```python
-def vector_similarity(self, x, y)
-```
-
-Calculate cosine similarity between two vectors.
-
-**Parameters:**
-
-- `x` (`List[float]`): First vector
-y: Second vector
-
-**Returns:**
-
-- `float`: Cosine similarity score

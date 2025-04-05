@@ -1,4 +1,4 @@
-# page_has_more_javascript_than_html.py: last updated 03:25 PM on March 31, 2025
+# page_has_more_javascript_than_html.py: last updated 12:47 AM on April 05, 2025
 
 **File Path:** `utils/page_has_more_javascript_than_html.py`
 

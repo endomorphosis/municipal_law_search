@@ -1,4 +1,4 @@
-# run_in_process_pool.py: last updated 03:25 PM on March 31, 2025
+# run_in_process_pool.py: last updated 12:47 AM on April 05, 2025
 
 **File Path:** `utils/run_in_process_pool.py`
 
@@ -25,3 +25,9 @@ Generates (input, output) tuples as the calls to ``func`` complete.
 
 See https://alexwlchan.net/2019/10/adventures-with-concurrent-futures/ for an explanation
 of how this function works.
+
+**Parameters:**
+
+- `func` (`Callable`): The function to call on each input.
+inputs: An iterable of inputs to pass to the function.
+max_concurrency: The maximum number of concurrent workers. If None, defaults to all CPU cores minus one.
