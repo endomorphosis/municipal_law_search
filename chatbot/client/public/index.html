@@ -19,6 +19,7 @@
     <link href="../src/css/contact/contact.css" rel="stylesheet">
     <link href="../src/css/ourteam/ourteam.css" rel="stylesheet">
     <link href="../src/css/menu/menu.css" rel="stylesheet">
+    <link href="../src/css/stalling/stalling.css" rel="stylesheet">
 </head>
 
 <body>
@@ -70,6 +71,11 @@
 
             <!-- Loading indicator -->
             <div id="loader" class="loader"></div>
+            
+            <!-- Stalling chatbot messages -->
+            <div id="stallingContainer" class="stalling-container">
+                <p id="stallingMessage" class="stalling-message">Alright, let me get to work on this.</p>
+            </div>
 
             <div id="results" class="mt-8 space-y-6"></div>
 
@@ -130,6 +136,7 @@
 
     <!-- Custom JavaScript -->
     <script src="../src/javascript/index/index.js"></script>
+    <script src="../src/javascript/stalling/stalling.js"></script>
     <script src="../src/javascript/disclaimer/disclaimer.js"></script>
     <script src="../src/javascript/about/about.js"></script>
     <script src="../src/javascript/contact/contact.js"></script>

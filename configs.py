@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-from pydantic import BaseModel, SecretStr, DirectoryPath
+from pydantic import BaseModel, SecretStr, DirectoryPath, ValidationError
 import yaml
 
 
@@ -33,6 +33,8 @@ class Configs(BaseModel):
     AMERICAN_LAW_DIR: DirectoryPath = _ROOT_DIR / _REPO_NAME
     AMERICAN_LAW_DATA_DIR: DirectoryPath = _ROOT_DIR / _REPO_NAME / "chatbot" / "data"
     PARQUET_FILES_DIR: DirectoryPath = _ROOT_DIR / _REPO_NAME / "chatbot" / "data" / "parquet_files"
+    AMERICAN_LAW_DB_PATH: DirectoryPath = _ROOT_DIR / _REPO_NAME / "chatbot" / "data" / "american_law.db"
+    PROMPTS_DIR: DirectoryPath = _ROOT_DIR / _REPO_NAME / "chatbot" / "llm" / "prompts"
     HUGGING_FACE_REPO_ID: str = "the-ride-never-ends/american_municipal_law"
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
@@ -43,4 +45,9 @@ class Configs(BaseModel):
 with open(_ROOT_DIR / _REPO_NAME / "configs.yaml", "r") as config_file:
     config_dict = yaml.safe_load(config_file)
 
-configs = Configs(**config_dict)
+try:
+    configs = Configs.model_validate(config_dict)
+except ValidationError as e:
+    raise ValidationError(
+        f"Validation error in configs: {e.errors()}"
+    ) from e

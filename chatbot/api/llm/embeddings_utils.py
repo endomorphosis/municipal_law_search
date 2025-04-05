@@ -11,6 +11,7 @@ import sqlite3
 
 
 # Set up logging
+from configs import configs, Configs
 from logger import logger
 
 
@@ -20,20 +21,20 @@ class EmbeddingsManager:
     Handles loading, processing, and searching embeddings in parquet files.
     """
     
-    def __init__(self, data_path: Optional[str] = None, db_path: Optional[str] = None):
+    def __init__(self, 
+                 configs: Optional[Configs] = None
+                 ):
         """
         Initialize the embeddings manager.
         
         Args:
-            data_path: Path to the dataset files
-            db_path: Path to the SQLite database
+            configs:
+                - data_path: Path to the dataset files
+                - db_path: Path to the SQLite database
         """
-        self.data_path = data_path or os.environ.get("AMERICAN_LAW_DATA_DIR")
-        if not self.data_path:
-            logger.warning("No data path provided. Some functionality may not work.")
-            
-        self.db_path = db_path or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "american_law.db")
-        
+        self.data_path = configs.AMERICAN_LAW_DATA_DIR
+        self.db_path = configs.AMERICAN_LAW_DB_PATH
+
         # Cache for recently used embeddings
         self._embedding_cache = {}
         
@@ -49,7 +50,7 @@ class EmbeddingsManager:
             
         embedding_files = list(Path(self.data_path).glob("*_embeddings.parquet"))
         return [str(file) for file in embedding_files]
-    
+
     def load_embeddings(self, file_id: str) -> pd.DataFrame:
         """
         Load embeddings from a parquet file.

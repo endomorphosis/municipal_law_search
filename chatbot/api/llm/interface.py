@@ -3,13 +3,19 @@ API interface for the LLM integration with the American Law dataset.
 Provides access to OpenAI-powered legal research and RAG components.
 """
 import os
+from pathlib import Path
 import re
 from typing import Dict, Any, List, Optional, Tuple
-from .openai_client import OpenAIClient
+
+
+from pydantic import BaseModel
+
+
+from configs import configs, Configs
+from logger import logger
+from .openai_client import OpenAIClient, LLMInput, LLMOutput
 from .embeddings_utils import EmbeddingsManager
 
-
-from logger import logger
 
 def _validate_and_correct_sql_query_string(sql_query: str, fix_broken_queries: bool = True) -> Optional[str]:
     """
@@ -60,10 +66,7 @@ class LLMInterface:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gpt-4o",
-        embedding_model: str = "text-embedding-3-small",
-        data_path: Optional[str] = None,
-        db_path: Optional[str] = None
+        configs: Optional[Configs] = None,
     ):
         """
         Initialize the LLM interface.
@@ -75,32 +78,33 @@ class LLMInterface:
             data_path: Path to the American Law dataset files
             db_path: Path to the SQLite database
         """
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        self.data_path = data_path or os.environ.get("AMERICAN_LAW_DATA_DIR")
-        self.db_path = db_path or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "american_law.db")
-        
+        self.configs = configs
+
+        self.api_key: str = api_key or os.environ.get("OPENAI_API_KEY")
+        self.data_path: Path = configs.AMERICAN_LAW_DATA_DIR
+        self.db_path: Path = configs.AMERICAN_LAW_DB_PATH
+        self.model: str = configs.OPENAI_MODEL
+        self.embedding_model: str = configs.OPENAI_EMBEDDING_MODEL
+
         # Initialize clients
-        self.openai_client = OpenAIClient(
+        self.openai_client: OpenAIClient = OpenAIClient(
             api_key=self.api_key,
-            model=model,
-            embedding_model=embedding_model,
-            data_path=self.data_path,
-            db_path=self.db_path
+            model=self.model,
+            embedding_model=self.embedding_model,
+            configs=self.configs
         )
-        
-        self.embeddings_manager = EmbeddingsManager(
-            data_path=self.data_path,
-            db_path=self.db_path
-        )
-        
-        logger.info(f"Initialized LLM interface with model: {model}")
+        logger.info(f"Initialized LLM interface with model: {self.model}")
     
+        self.embeddings_manager = EmbeddingsManager(configs=self.configs)
+        logger.info(f"Initialized Embeddings Manager with model: {self.embedding_model}")
+
+
     def ask_question(
         self,
         query: str,
         use_rag: bool = True,
         use_embeddings: bool = True,
-        context_limit: int = 5,
+        document_limit: int = 5,
         custom_system_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -110,7 +114,7 @@ class LLMInterface:
             query: User's question
             use_rag: Whether to use Retrieval Augmented Generation
             use_embeddings: Whether to use embeddings search for RAG
-            context_limit: Maximum number of context documents to include
+            document_limit: Maximum number of context documents to include
             custom_system_prompt: Custom system prompt for LLM
             
         Returns:
@@ -123,7 +127,7 @@ class LLMInterface:
             response = self.openai_client.generate_rag_response(
                 query=query,
                 use_embeddings=use_embeddings,
-                context_limit=context_limit,
+                document_limit=document_limit,
                 system_prompt=custom_system_prompt
             )
         else:
@@ -157,7 +161,92 @@ class LLMInterface:
                 }
         
         return response
-    
+
+
+    def _generic_response(self, message: str = None, system_prompt: str = None) -> str:
+        return self.openai_client.client.chat.completions.create(
+            model="gpt4o",
+            messages=[
+                {"role": "system", "content": system_prompt.strip()},
+                {"role": "user", "content": message.strip()}
+            ],
+            max_tokens=1024,
+            temperature=0 # Deterministic output
+        )
+
+
+    def determine_user_intent(self, message: str) -> str:
+        """
+        Determine the user's intent based on the query.
+        
+        Args:
+            query: User's input query
+            
+        Returns:
+            Intent type as a string
+        """
+        # Make sure the response isn't anything nasty.
+        response = self.openai_client.client.moderations.create(
+            model="omni-moderation-latest",
+            input=message,
+        )
+        if response.results[0].flagged:
+            logger.warning(f"Message flagged by moderation: {message}")
+            return "OTHER"
+ 
+        logger.debug(f"Entering Determine Intent")
+        system_prompt = """
+        You are an intent classifier for a legal search system. Your job is to determine what the user wants to do with their query.
+        Classify the user's intent into one of these categories:
+        1. SEARCH - User wants to find specific laws or cases
+        2. QUESTION - User is asking a legal question that needs explanation
+        3. CITATION - User is looking for a specific citation or reference
+        4. OTHER - None of the above
+        Consider any direct or indirect or general information as a basis for your classification.
+        Wrap your final answer in Markdown (e.g. ```plaintext```).
+        """
+        try:
+            response = self.openai_client.client.chat.completions.create(
+                model="gpt-3.5-turbo-0125",
+                messages=[
+                    {"role": "system", "content": system_prompt.strip()},
+                    {"role": "user", "content": f"Message: {message}".strip()}
+                ],
+                max_tokens=1024,
+                temperature=0 # Deterministic output
+            )
+            if response.choices:
+                choice_content = response.choices[0].message.content.strip().lower()
+                logger.debug(f"Determine intent content: '{choice_content}'")
+
+                if "```" in choice_content:
+                    choice_content = choice_content.split("```")[1].strip()
+                
+                logger.debug(f"Determine intent content after stripping: '{choice_content}'")
+
+                # Extract intent from the classifier response
+                if "search" in choice_content:
+                    return "SEARCH"
+                elif "question" in choice_content:
+                    return "QUESTION"
+                elif "citation" in choice_content:
+                    return "CITATION"
+                elif "other" in choice_content:
+                    return "OTHER"
+                else:
+                    # Default fallback if the response doesn't match any category.
+                    # This includes cases where the model returns a malformed or .
+                    logger.error("Response did not match expected intent categories")
+                    logger.debug(f"Response content: {choice_content}")
+                    return "OTHER"  # Default to search as fallback
+            else:
+                logger.error("No valid choice in the GPT response")
+                return "OTHER"  # Default fallback
+        except Exception as e:
+            logger.error(f"Error in determine_intent_basic: {e}", exc_info=True)
+            return "OTHER"  # Fallback in case of exception
+
+
     def search_embeddings(
         self,
         query: str,
@@ -298,9 +387,8 @@ For legal citations, use Bluebook format when available. Be concise but thorough
         Available tables and their schema:
         
         1. citations:
-           - id (INTEGER): Primary key
-           - bluebook_cid (TEXT): Unique CID for citation
-           - cid (TEXT): CID for the citation's associated law (foreign key)
+           - bluebook_cid (VARCHAR): Unique and primary key CID for citation
+           - cid (VARCHAR): CID for the citation's associated law (foreign key)
            - title (TEXT): Plaintext version of the law's title
            - title_num (TEXT): Number in the law's title
            - chapter (TEXT): Chapter title containing the law
@@ -311,20 +399,18 @@ For legal citations, use Bluebook format when available. Be concise but thorough
            - bluebook_citation (TEXT): Bluebook citation for the law
            
         2. html:
-           - id (INTEGER): Primary key  
-           - cid (TEXT): Unique CID for the law
+           - cid (VARCHAR): Unique and primary key CID for the law
            - doc_id (TEXT): Unique ID based on law's title
            - doc_order (INTEGER): Relative location of law in corpus
            - html_title (TEXT): Raw HTML of law's title
            - html (TEXT): Raw HTML content of the law
            
         3. embeddings:
-           - id (INTEGER): Primary key
-           - embedding_cid (TEXT): Unique CID for the embedding
-           - gnis (TEXT): Place's GNIS id
-           - cid (TEXT): CID for associated law (foreign key)
+           - embedding_cid (VARCHAR): Unique and primary CID for the embedding
+           - gnis (VARCHAR): Place's GNIS id
+           - cid (VARCHAR): CID for associated law (foreign key)
            - text_chunk_order (INTEGER): Relative location of embedding
-           - embedding_filepath (TEXT): Path to embedding file
+           - embedding (DOUBLE[1536]): Embedding vector for the law.
         """
         
         # Default system prompt if none provided
@@ -341,9 +427,18 @@ Important guidelines:
 3. Join tables when necessary using the cid field
 4. For queries about specific states, filter by state_name or state_code
 5. For queries about specific places, filter by place_name
-6. Limit results to a reasonable number (default 10)
-7. Include ORDER BY clauses for relevance
-8. When searching text in the html table, use the html field
+6. Include ORDER BY clauses for relevance
+7. When searching text in the html table, use the html field
+8. Always include the following fields in the SELECT statement when selecting from the citations table:
+   - cid
+   - bluebook_cid
+   - title
+   - chapter
+   - place_name
+   - state_name
+   - date
+   - bluebook_citation
+9. Use related terms and synonyms based on context clues in the question (e.g. "pets" implies "animals", "dogs", "cats", etc.)
 
 Return ONLY the SQL query without any explanations."""
         else:

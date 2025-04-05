@@ -3,6 +3,7 @@ let currentPage = 1;
 let currentQuery = '';
 let totalPages = 1;
 let hasSearched = false; // Track if a search has been performed
+let stallingSSSE = null; // Server-Sent Events connection for stalling messages
 
 // DOM elements
 document.addEventListener('DOMContentLoaded', () => {
@@ -18,6 +19,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const toast = document.getElementById('toast');
     const toastIcon = document.getElementById('toastIcon');
     const toastMessage = document.getElementById('toastMessage');
+    const stallingContainer = document.getElementById('stallingContainer');
+    const stallingMessage = document.getElementById('stallingMessage');
+
+    // Stalling messages that can be displayed while searching
+    const STALLING_MESSAGES = [
+        "Alright, let me get to work on this.",
+        "I'm parsing your request into SQL...",
+        "Searching the legal database for relevant information...",
+        "Analyzing your query...",
+        "Looking through American law documents...",
+        "Converting your question to structured query language...",
+        "Working on retrieving the most relevant legal information...",
+        "Processing your request...",
+        "Examining the database to find matching legal documents...",
+        "Searching through legal citations that match your query..."
+    ];
 
     // Show/hide loading indicator
     function setLoading(isLoading) {
@@ -41,6 +58,45 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 3000);
     }
 
+    // Start showing stalling messages
+    function startStallingMessages() {
+        // Close any existing SSE connection
+        if (stallingSSSE) {
+            stallingSSSE.close();
+        }
+
+        // Show the stalling container
+        stallingContainer.style.display = 'block';
+
+        // Initialize with first stalling message
+        stallingMessage.textContent = STALLING_MESSAGES[0];
+
+        // Setup manual rotation of stalling messages (since we're not using server-side SSE)
+        let messageIndex = 1;
+        const interval = setInterval(() => {
+            // Rotate through stalling messages
+            stallingMessage.textContent = STALLING_MESSAGES[messageIndex % STALLING_MESSAGES.length];
+            messageIndex++;
+        }, 3000);
+
+        // Store the interval ID in the stallingSSSE variable for cleanup
+        stallingSSSE = { 
+            close: () => {
+                clearInterval(interval);
+                stallingContainer.style.display = 'none';
+            }
+        };
+    }
+
+    // Stop showing stalling messages
+    function stopStallingMessages() {
+        if (stallingSSSE) {
+            stallingSSSE.close();
+            stallingSSSE = null;
+        }
+        stallingContainer.style.display = 'none';
+    }
+
     async function searchLaws(query, page = 1) {
         // Set hasSearched flag to true
         hasSearched = true;
@@ -48,7 +104,12 @@ document.addEventListener('DOMContentLoaded', () => {
         currentQuery = query;
         currentPage = page;
         
-        setLoading(true);
+        // Start showing stalling messages
+        startStallingMessages();
+        
+        // Hide the regular loading indicator (we're using stalling messages instead)
+        setLoading(false);
+        
         resultsDiv.innerHTML = '';
         
         try {
@@ -58,6 +119,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             const data = await response.json();
+            
+            // Stop showing stalling messages
+            stopStallingMessages();
             
             // Show the results and pagination containers
             document.getElementById('results').style.display = 'block';
@@ -74,7 +138,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error searching laws:', error);
             showToast('An error occurred while searching. Please try again.', 'error');
+            stopStallingMessages();
         } finally {
+            // Make sure loading elements are hidden
             setLoading(false);
         }
     }
@@ -110,13 +176,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <h3 class="result-title">${law.title}</h3>
                 <div class="result-meta">
                     <span class="font-medium">${law.place_name}, ${law.state_name}</span> • 
-                    <span>${law.chapter}</span> • 
-                    <span>${law.date}</span>
+                    <span>${law.chapter}</span>
                 </div>
-                <p class="result-content">${law.content}</p>
+                <p class="html-content">${law.html}</p>
                 <div class="result-footer">
                     <span class="text-text-light">${law.bluebook_citation}</span>
-                    <button class="view-law-btn btn btn-primary" data-id="${law.id}">
+                    <button class="view-law-btn btn btn-primary" data-id="${law.cid}">
                         View Full Text <i class="fas fa-arrow-right ml-1"></i>
                     </button>
                 </div>
@@ -126,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Add event listener to the button
             const viewBtn = lawCard.querySelector('.view-law-btn');
-            viewBtn.addEventListener('click', () => viewLaw(law.id));
+            viewBtn.addEventListener('click', () => viewLaw(law.cid));
             
             // Staggered animation for each card
             setTimeout(() => {
@@ -175,29 +240,33 @@ document.addEventListener('DOMContentLoaded', () => {
         return button;
     }
 
-    async function viewLaw(lawId) {
+    async function viewLaw(lawCid) {
         try {
-            setLoading(true);
-            const response = await fetch(`/api/law/${lawId}`);
+            // Start stalling messages for law view as well
+            startStallingMessages();
+            
+            const response = await fetch(`/api/law/${lawCid}`);
             if (!response.ok) {
                 throw new Error('Network response was not ok');
             }
             
             const law = await response.json();
             
+            // Stop stalling messages
+            stopStallingMessages();
+            
             modalTitle.textContent = law.title;
             modalContent.innerHTML = `
                 <div class="mb-4">
                     <div class="text-sm text-gray-600">
                         <span class="font-medium">${law.place_name}, ${law.state_name}</span> • 
-                        <span>${law.chapter}</span> • 
-                        <span>${law.date}</span>
+                        <span>${law.chapter}</span>
                     </div>
-                    <div class="text-sm text-gray-500 mt-1">${law.bluebook_citation}</div>
                 </div>
-                <div class="prose max-w-none">
-                    ${law.content.split('\n').map(para => `<p class="mb-4">${para}</p>`).join('')}
+                <div id="law-chunk" class="prose max-w-none">
+                    ${law.html.split('\n').map(para => `<p class="mb-4">${para}</p>`).join('')}
                 </div>
+                <div class="text-sm text-gray-500 mt-1">Bluebook Citation: ${law.bluebook_citation}</div>
             `;
             
             // Show modal with animation
@@ -211,8 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error fetching law details:', error);
             showToast('An error occurred while loading the law details.', 'error');
-        } finally {
-            setLoading(false);
+            stopStallingMessages();
         }
     }
     
@@ -249,7 +317,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Hide results container initially
+    // Hide results and stalling container initially
     document.getElementById('results').style.display = 'none';
     document.getElementById('pagination').style.display = 'none';
+    stallingContainer.style.display = 'none';
 });

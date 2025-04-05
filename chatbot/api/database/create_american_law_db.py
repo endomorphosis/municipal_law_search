@@ -22,6 +22,53 @@ CITATIONS_DB_PATH = configs.AMERICAN_LAW_DATA_DIR / 'citations.db'
 EMBEDDINGS_DB_PATH = configs.AMERICAN_LAW_DATA_DIR / 'embeddings.db'
 HTML_DB_PATH = configs.AMERICAN_LAW_DATA_DIR / 'html.db'
 
+
+#     bluebook_cid VARCHAR PRIMARY KEY,
+#     cid VARCHAR NOT NULL,
+#     title TEXT NOT NULL,
+#     title_num VARCHAR,
+#     date TEXT,
+#     public_law_num VARCHAR,
+#     chapter TEXT,
+#     chapter_num TEXT,
+#     history_note TEXT,
+#     ordinance TEXT,
+#     section TEXT,
+#     enacted TEXT,
+#     year TEXT,
+#     place_name TEXT NOT NULL,
+#     state_name TEXT NOT NULL,
+#     state_code TEXT NOT NULL,
+#     bluebook_state_code TEXT NOT NULL,
+#     bluebook_citation TEXT NOT NULL,
+#     gnis VARCHAR NOT NULL
+
+
+
+# # SQL Table Creation Statement
+# CREATE TABLE citations (
+#     bluebook_cid TEXT,
+#     cid TEXT,
+#     title TEXT,
+#     public_law_num TEXT,
+#     chapter TEXT,
+#     ordinance TEXT,
+#     section TEXT,
+#     enacted TEXT,
+#     year TEXT,
+#     history_note TEXT,
+#     place_name TEXT,
+#     state_code TEXT,
+#     bluebook_state_code TEXT,
+#     state_name TEXT,
+#     chapter_num TEXT,
+#     title_num TEXT,
+#     date TEXT,
+#     bluebook_citation TEXT,
+#     gnis INTEGER
+# );
+
+
 DB_DICT = {
     "citations": {
         "path": CITATIONS_DB_PATH,
@@ -29,21 +76,21 @@ DB_DICT = {
             CREATE TABLE IF NOT EXISTS citations (
                 bluebook_cid VARCHAR PRIMARY KEY,
                 cid VARCHAR NOT NULL,
-                title TEXT NOT NULL,
-                title_num VARCHAR,
-                date TEXT,
+                title VARCHAR NOT NULL,
                 public_law_num VARCHAR,
-                chapter TEXT,
-                chapter_num TEXT,
-                history_note TEXT,
+                chapter VARCHAR,
                 ordinance TEXT,
                 section TEXT,
                 enacted TEXT,
                 year TEXT,
+                history_note TEXT,
                 place_name TEXT NOT NULL,
-                state_name TEXT NOT NULL,
                 state_code TEXT NOT NULL,
                 bluebook_state_code TEXT NOT NULL,
+                state_name TEXT NOT NULL,
+                chapter_num TEXT,
+                title_num TEXT,
+                date TEXT,
                 bluebook_citation TEXT NOT NULL,
                 gnis VARCHAR NOT NULL
             )
@@ -108,6 +155,79 @@ def make_tables_in_the_databases():
                         logger.error(f"Error creating table: {e}")
                         raise e
     logger.info("All tables created successfully.")
+
+
+def make_citations_db():
+    """Create the citations database."""
+    if not CITATIONS_DB_PATH.exists():
+        logger.info(f"Creating new DuckDB database at {CITATIONS_DB_PATH}")
+        duckdb.connect(CITATIONS_DB_PATH).close()
+        logger.info("Citations database created successfully.")
+    else:
+        logger.debug(f"Citations database exists at {CITATIONS_DB_PATH}.")
+
+
+def make_tables_in_citations_db():
+    """Create tables in the citations database."""
+    with duckdb.connect(CITATIONS_DB_PATH) as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute(DB_DICT["citations"]["table"])
+                logger.info("Citations table created successfully.")
+            except duckdb.CatalogException as e:
+                logger.warning("Citations table already exists. Skipping creation.")
+            except Exception as e:
+                logger.error(f"Error creating citations table: {e}")
+                raise e
+    logger.info("Citations table created successfully.")
+
+
+def remake_citations_from_american_law_db():
+    """Clear the citations table in the American Law database."""
+    with duckdb.connect(AMERICAN_LAW_DB_PATH) as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("DROP TABLE IF EXISTS citations")
+                logger.info("Citations table dropped successfully. Remaking...")
+                cursor.execute(DB_DICT["citations"]["table"])
+                logger.info("Citations table recreated successfully.")
+            except Exception as e:
+                logger.error(f"Error clearing citations table: {e}")
+                raise e
+
+
+def insert_into_db_from_citation_parquet_file(parquets: list[tuple[str, Path]]) -> None:
+
+    # parquets = list(configs.PARQUET_FILES_DIR.glob("**/*_citation.parquet"))
+
+    if not parquets:
+        logger.warning("No parquet files to process.")
+        return
+
+    citation_parquets = []
+    for parquet_types in parquets:
+        if parquet_types[0][0] != "citations":
+            logger.warning("No parquet types to process.")
+            continue
+        else:
+            citation_parquets.extend(parquet_types)
+    print(f"citation_parquets: {citation_parquets}")
+
+    # db_type = citation_parquets[0][0]
+    with duckdb.connect(CITATIONS_DB_PATH) as conn:
+        with conn.cursor() as cursor:
+            for file in tqdm(citation_parquets, desc="Uploading citation files to citation databases"):
+                try:
+                    cursor.execute('BEGIN TRANSACTION;')
+                    cursor.execute(f'''
+                        INSERT INTO {file[0]}
+                            SELECT * FROM read_parquet('{file[1].resolve()}');
+                    ''')
+                    cursor.execute('COMMIT;')
+                except Exception as e:
+                    logger.error(f"Error inserting data into {file[0]} from {file[1]}: {e}")
+                    cursor.execute('ROLLBACK;')
+
 
 
 def log_missing_data(gnis: int, missing_data: list, csv_path: Path = MISSING_DATE_CSV):
@@ -196,6 +316,7 @@ def get_all_the_unique_gnis_that_are_in_all_three_tables_in_the_database(cursor:
 
 def check_for_complete_set_of_parquet_files(unique_gnis: set[str], base_path: Path) -> list[list[tuple[str, Path]]]:
     # Find all citation files
+    base_path = configs.AMERICAN_LAW_DATA_DIR / "parquet_files"
     citation_files = list(base_path.glob("**/*_citation.parquet"))
     logger.info(f"Found {len(citation_files)} citation files in {base_path}")
 
@@ -264,8 +385,6 @@ def upload_files_to_database(parquet_list: list[list[tuple[str, Path]]]) -> None
     logger.info(f"Finished uploading parquet files to databases.")
 
 
-
-
 def merge_database_into_the_american_law_db(cursor: duckdb.DuckDBPyConnection) -> None:
     # Merge the databases into one 'american_law.db'
     logger.info("Merging databases into american_law.db")
@@ -278,7 +397,19 @@ def merge_database_into_the_american_law_db(cursor: duckdb.DuckDBPyConnection) -
             if 'american_law.db' in str(db_path):
                 logger.info(f"Skipping {db_path} as it's the target database itself")
                 continue
-                
+
+            # if name == "citations":
+            #     # Drop and recreate the table
+            #     cursor.execute("DROP TABLE IF EXISTS citations")
+            #     logger.debug("Dropped existing citations table.")
+
+            # Skip if the table already exists
+            table_exists = cursor.execute(f"SELECT * FROM information_schema.tables WHERE table_name = '{name}'").fetchone()
+            if table_exists:
+                logger.info(f"Table {name} already exists in american_law.db. Skipping...")
+                logger.debug(f"table_exists: {table_exists}")
+                continue
+
             logger.info(f"Processing database {db_path} to merge into american_law.db")
             
             # Attach the database once for all operations
@@ -399,22 +530,29 @@ def create_american_law_db(base_path: Path = None):
             with conn.cursor() as cursor:
                 # Check if the database has any data in it.
                 cursor.execute("SELECT COUNT(*) FROM citations")
-                count = cursor.fetchone()[0]
+                count = 0 #cursor.fetchone()[0]
                 if count > 0:
                     logger.info("Database already contains data. Skipping creation.")
                     return
                 else:
                     logger.info("Database is empty. Proceeding with data upload.")
 
-                    make_the_databases()
+                    #make_the_databases()
+                    #remake_citations_from_american_law_db()
 
-                    make_tables_in_the_databases()
+                    #make_tables_in_the_databases()
+                    # make_citations_db()
+                    # make_tables_in_citations_db()
 
-                    unique_gnis = get_all_the_unique_gnis_that_are_in_all_three_tables_in_the_database(cursor)
+                    # unique_gnis = get_all_the_unique_gnis_that_are_in_all_three_tables_in_the_database(cursor)
 
-                    parquet_list = check_for_complete_set_of_parquet_files(unique_gnis, base_path)
+                    # parquet_list = check_for_complete_set_of_parquet_files(unique_gnis, base_path)
 
-                    upload_files_to_database(parquet_list)
+                    # insert_into_db_from_citation_parquet_file(parquet_list)
+                    #Upload files to the databases
+
+                
+                    #upload_files_to_database(parquet_list)
 
                     merge_database_into_the_american_law_db(cursor)
 

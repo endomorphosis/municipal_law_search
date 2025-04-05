@@ -1,0 +1,9 @@
+schema: openai
+system_prompt: 
+  role: system
+  content: |
+    You are a helpful assistant.
+user_prompt:
+  role: user
+  content: |
+    I want you to do this thing.
