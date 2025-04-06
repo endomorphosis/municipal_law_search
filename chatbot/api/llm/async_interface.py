@@ -424,8 +424,8 @@ Important guidelines:
 3. Join tables when necessary using the cid field
 4. For queries about specific states, filter by state_name or state_code
 5. For queries about specific places, filter by place_name
-6. Include ORDER BY clauses for relevance
-7. When searching text in the html table, use the html field
+6. For queries about certain topics, filter by keyword in the html field
+7. Include ORDER BY clauses for relevance
 8. Always include the following fields in the SELECT statement when selecting from the citations table:
    - cid
    - bluebook_cid

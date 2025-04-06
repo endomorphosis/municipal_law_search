@@ -39,7 +39,7 @@ class Configs(BaseModel):
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     LOG_LEVEL: int = 10
-
+    SIMILARITY_SCORE_THRESHOLD: float = 0.3
 
 # Load the configs from the yaml and create an instance of the Configs class
 with open(_ROOT_DIR / _REPO_NAME / "configs.yaml", "r") as config_file:

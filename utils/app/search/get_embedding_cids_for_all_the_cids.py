@@ -1,11 +1,22 @@
+from itertools import batched
+from typing import Generator
+
+
 import duckdb
+import tqdm
+import psutil
 
 
+from logger import logger
+from configs import configs
 from utils.database.get_db import get_embeddings_db
 
 
 
-def get_embedding_cids_for_all_the_cids(initial_results: list[dict]) -> list[dict]:
+def get_embedding_cids_for_all_the_cids(
+        initial_results: list[dict], 
+        batch_size: int = 100
+        ) -> Generator[None, None, list[dict]]:
     """
     Retrieves embedding CIDs for all the provided CIDs from the embeddings database.
 
@@ -26,15 +37,33 @@ def get_embedding_cids_for_all_the_cids(initial_results: list[dict]) -> list[dic
     # Get embeddings_cids for all the CIDs,
     embeddings_conn: duckdb.DuckDBPyConnection = get_embeddings_db(read_only=True)
     embeddings_cursor = embeddings_conn.cursor()
-    embedding_id_list: list[tuple] = []
-    for row in initial_results:
-        # Query the embeddings table using the current row's cid
-        embedding_ids: list[dict] = embeddings_cursor.execute('''
-            SELECT embedding_cid, cid
-            FROM embeddings 
-            WHERE cid = ?;
-        ''', (row['cid'],)).fetchdf().to_dict('records')[0]
-        embedding_id_list.append(embedding_ids)
+
+    if initial_results:
+        for batch in tqdm.tqdm(batched(initial_results, batch_size)):
+
+            embedding_id_list: list[tuple] = []
+            for i, row in enumerate(batch, start=1):
+                if i == 1:
+                    cid_string = f" cid = {row['cid']}"
+                cid_string += f" OR cid = {row['cid']}"
+
+            # Query the embeddings table using the current row's cid
+            try: # TODO: Make it so I can select multiple rows at once.
+                embedding_ids: list[tuple] = embeddings_cursor.execute(f'''
+                    SELECT embedding_cid, cid
+                    FROM embeddings 
+                    WHERE
+                    ''' + cid_string + ";", 
+                )
+                for row in embedding_ids:
+                    embedding_id_list.append({'embedding_cid': row[0], 'cid': row[1]})
+            except IndexError:
+                #logger.debug(f"No embedding found for the given CID {row['cid']}.")
+                continue
+            yield embedding_id_list
+    else:
+        logger.debug("No initial results provided. Returning an empty list.")
+        yield []
 
     embeddings_cursor.close()
     embeddings_conn.close()

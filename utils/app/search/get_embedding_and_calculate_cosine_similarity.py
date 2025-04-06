@@ -9,8 +9,6 @@ from configs import configs
 from utils.llm.cosine_similarity import cosine_similarity
 
 
-_ARBITRARY_SIMILARITY_SCORE_THRESHOLD = 0.5
-
 
 def get_embedding_and_calculate_cosine_similarity(
     embedding_data: dict[str, str],
@@ -60,7 +58,7 @@ def get_embedding_and_calculate_cosine_similarity(
                 logger.debug(f"\nCosine similarity score: {similarity_score}")
 
                 # Yield the CID if the similarity score exceeds the threshold
-                if similarity_score >= _ARBITRARY_SIMILARITY_SCORE_THRESHOLD:
+                if similarity_score >= configs.SIMILARITY_SCORE_THRESHOLD:
                     return cid, similarity_score.item()
                 else:
                     return None

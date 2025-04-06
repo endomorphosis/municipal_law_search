@@ -13,7 +13,10 @@ def cosine_similarity(x: List[float], y: List[float]) -> float:
         y: Second vector
         
     Returns:
-        Cosine similarity score
+        Cosine similarity score, ranging from -1 to 1.
+            - 1 indicates identical vectors, 
+            - 0 indicates orthogonal (e.g. perpendicular) vectors
+            - -1 indicates opposite vectors.
     """
     return np.dot(
         np.array(x), np.array(y)

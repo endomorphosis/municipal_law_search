@@ -369,6 +369,8 @@ async def search(
                 # Strip out any markdown formatting if present
                 sql_query = sql_query.replace("```sql","").replace("```","").strip()
 
+                # Replace the LLM's limit with 
+
             # Determine which database to use based on the SQL query
             if "citations" in sql_query.lower():
                 db_conn = get_citation_db(read_only)
@@ -400,7 +402,7 @@ async def search(
                 if total != 0:
 
                     # Then execute the actual query with pagination
-                    cursor.execute(sql_query)
+                    cursor.execute(sql_query.split('LIMIT')[0])
                     df_dict = cursor.fetchdf().to_dict('records')
 
                     initial_results: list[dict] = []
@@ -418,40 +420,41 @@ async def search(
                             row_dict = format_initial_sql_return_from_search(row)
                             initial_results.append(row_dict)
 
-                    embedding_id_list: list[dict] = get_embedding_cids_for_all_the_cids(initial_results)
-                    if not isinstance(embedding_id_list[0], dict):
-                        logger.debug(f"type(embedding_id_list[0]): {type(embedding_id_list[0])}")
-                        logger.debug(f"embedding_id_list: {embedding_id_list}")
-
                     func: Callable = functools.partial(
                         get_embedding_and_calculate_cosine_similarity,
                         query_embedding=query_embedding,
                     )
 
                     # Use a process pool to calculate cosine similarity for each embedding
-                    pull_list = []
-                    async for _, embedding_id in async_run_in_process_pool(func, embedding_id_list):
-                        if embedding_id is not None:
-                            pull_list.append(embedding_id)
+                    embedding_id_list: list[dict] = get_embedding_cids_for_all_the_cids(initial_results)
+                    if not isinstance(embedding_id_list[0], dict):
+                        logger.debug(f"type(embedding_id_list[0]): {type(embedding_id_list[0])}")
+                        logger.debug(f"embedding_id_list: {embedding_id_list}")
 
-                    # Order the pull list by their cosine similarity score.
-                    pull_list = sorted(pull_list, key=lambda x: x[1], reverse=True)
-                    logger.debug(f"pull_list: {pull_list}") 
+                    for embedding_id_list in get_embedding_cids_for_all_the_cids(initial_results):
+                        pull_list = []
+                        async for _, embedding_id in async_run_in_process_pool(func, embedding_id_list):
+                            if embedding_id is not None:
+                                pull_list.append(embedding_id)
 
-                    results = []
-                    for cid, _ in pull_list:
-                        # Find the corresponding row in the initial results
-                        for row_dict in initial_results:
-                            if row_dict['cid'] == cid:
-                                # Get the HTML content for this citation
-                                html: str = _get_html_for_this_citation(row_dict)
-                                if html in html_set:
-                                    break
-                                else:
-                                    html_set.add(html)
-                                    row_dict['html'] = html
-                                    results.append(row_dict)
-                                    break
+                        # Order the pull list by their cosine similarity score.
+                        pull_list = sorted(pull_list, key=lambda x: x[1], reverse=True)
+                        #logger.debug(f"pull_list: {pull_list}: pull_list") 
+
+                        results = []
+                        for cid, _ in pull_list:
+                            # Find the corresponding row in the initial results
+                            for row_dict in initial_results:
+                                if row_dict['cid'] == cid:
+                                    # Get the HTML content for this citation
+                                    html: str = _get_html_for_this_citation(row_dict)
+                                    if html in html_set:
+                                        continue
+                                    else:
+                                        html_set.add(html)
+                                        row_dict['html'] = html
+                                        results.append(row_dict)
+                                        break
 
             except duckdb.BinderException as e:
                 logger.error(f"duckdby.BinderException error: {e}")
