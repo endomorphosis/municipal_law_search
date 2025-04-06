@@ -6,6 +6,23 @@ from tqdm import asyncio as tqdm_asyncio
 
 
 async def limiter(task, limit: asyncio.Semaphore = None):
+    """
+    Rate limit a coroutine task using a semaphore.
+    
+    This function wraps an awaitable task with a semaphore to control concurrency.
+    It ensures that only a limited number of tasks can run simultaneously.
+    
+    Args:
+        task (Awaitable): The coroutine task to be rate-limited
+        limit (asyncio.Semaphore, optional): The semaphore to use for rate limiting.
+            If an integer is provided, a new semaphore will be created with that value.
+            
+    Returns:
+        Any: The result of the awaited task
+        
+    Raises:
+        ValueError: If limit is neither a Semaphore nor an integer
+    """
     if not isinstance(limit, asyncio.Semaphore):
         if isinstance(limit, int):
             limit = asyncio.Semaphore(limit)

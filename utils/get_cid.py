@@ -8,14 +8,24 @@ import os
 
 
 class IpfsMultiformats:
+    """
+    A class to manage Content Identifiers (CIDs) using multihash and IPFS standards.
+    
+    This class provides methods to generate CIDs for files and content using the
+    IPFS multiformats specification. It implements a three-step process:
+    1. Hash the content using SHA-256
+    2. Wrap the hash in Multihash format
+    3. Generate a CIDv1 using the raw codec and base32 encoding
+    """
 
     def __init__(self):
+        """Initialize a new IpfsMultiformats instance."""
         return None
 
-    # Step 1: Hash the file content with SHA-256
     def get_file_sha256(self, file_path: str) -> bytes:
         """
         Calculate the SHA-256 hash of a file. 
+        
         This method reads the file in 8192-byte chunks to handle large files
         without loading everything into memory all at once.
 
@@ -31,10 +41,10 @@ class IpfsMultiformats:
                 hasher.update(chunk)
         return hasher.digest()
 
-    # Step 2: Wrap the hash in Multihash format
     def get_multihash_sha256(self, file_content_hash: bytes) -> bytes:
         """
         Wrap the given SHA-256 hash in Multihash format.
+        
         This method uses the 'sha2-256' algorithm identifier for the Multihash format.
 
         Args:
@@ -45,7 +55,6 @@ class IpfsMultiformats:
         """
         return multihash.wrap(file_content_hash, 'sha2-256')
 
-    # Step 3: Generate CID from Multihash (CIDv1)
     def get_cid(self, file_data: str | bytes) -> str:
         """
         Generate a Content Identifier (CID) for the given file path or raw data.
@@ -58,16 +67,25 @@ class IpfsMultiformats:
 
         Returns:
             str: The generated CID as a string.
+            
+        Note:
+            - For existing files, the CID is calculated directly from the file
+            - For string or bytes data, a temporary file is created to calculate the CID
+            - The temporary file is always removed after processing
+            - CIDs are generated using CIDv1 with base32 encoding and the 'raw' codec
         """
-
-        if os.path.isfile(file_data):
+        # If file_data is a valid file path that exists
+        if isinstance(file_data, str) and os.path.isfile(file_data):
             print("Making file hash...")
             if os.path.getsize(file_data) > 0:
-                print("Empty file. Defaulting to temp file.")
                 file_content_hash = self.get_file_sha256(file_data)
                 mh = self.get_multihash_sha256(file_content_hash)
                 cid = CID('base32', 1, 'raw', mh)
+                return str(cid)
+            else:
+                print("Empty file. Defaulting to temp file method.")
 
+        # If file_data is raw data or an empty file, use a temporary file
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
             filename = f.name
             with open(filename, 'w') as f_new:
@@ -76,6 +94,8 @@ class IpfsMultiformats:
             file_content_hash = self.get_file_sha256(filename)
             mh = self.get_multihash_sha256(file_content_hash)
             cid = CID('base32', 1, 'raw', mh)
+        
+        # Always clean up the temporary file
         os.remove(filename)
 
         return str(cid)

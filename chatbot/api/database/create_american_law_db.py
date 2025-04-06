@@ -197,7 +197,24 @@ def remake_citations_from_american_law_db():
 
 
 def insert_into_db_from_citation_parquet_file(parquets: list[tuple[str, Path]]) -> None:
-
+    """
+    Insert citation data from parquet files into the citation database.
+    
+    This function reads citation data from parquet files and inserts it into
+    the citations database. It handles transaction management and logs errors.
+    
+    Args:
+        parquets (list[tuple[str, Path]]): A list of tuples containing the table name
+            and path to the parquet file. Each tuple should have format (table_name, file_path).
+    
+    Returns:
+        None
+    
+    Note:
+        - This function only processes parquet files with "citations" as the first element
+        - Each file insertion is wrapped in a transaction
+        - Errors during insertion will trigger a rollback
+    """
     # parquets = list(configs.PARQUET_FILES_DIR.glob("**/*_citation.parquet"))
 
     if not parquets:
@@ -259,6 +276,27 @@ def log_missing_data(gnis: int, missing_data: list, csv_path: Path = MISSING_DAT
 
 
 def attach_then_insert_from_another_db(merged_db: duckdb.DuckDBPyConnection, db_path: Path) -> None:
+    """
+    Attach another database and insert its data into the merged database.
+    
+    This function attaches a database at the specified path to the current connection,
+    transfers all data from the table with the same name as the database stem,
+    and then detaches the database. The operation is wrapped in a transaction
+    for atomicity.
+    
+    Args:
+        merged_db (duckdb.DuckDBPyConnection): The connection to the database that will 
+            receive the data.
+        db_path (Path): Path to the database to attach and copy data from.
+    
+    Returns:
+        None
+        
+    Note:
+        - The function assumes the target table already exists in the merged database
+        - Table name is derived from the database filename (without extension)
+        - Transaction is rolled back if any error occurs
+    """
     try:
         merged_db.execute('BEGIN TRANSACTION;')
         table_name = db_path.stem.lower()
@@ -276,6 +314,27 @@ def attach_then_insert_from_another_db(merged_db: duckdb.DuckDBPyConnection, db_
 import time
 
 def insert_into_db_from_parquet_file(parquets: list[tuple[str, Path]]) -> None:
+    """
+    Insert data from parquet files into their corresponding database tables.
+    
+    This function processes a list of parquet files, connecting to the appropriate
+    database based on the first element in the list (which determines the database type),
+    then loads each parquet file into its corresponding table.
+    
+    Args:
+        parquets (list[tuple[str, Path]]): A list of tuples containing the table name
+            and path to the parquet file. Each tuple should have format (table_name, file_path).
+            All entries should be for the same database type (citations, embeddings, or html).
+    
+    Returns:
+        None
+    
+    Note:
+        - The first element of the first tuple in parquets determines which database to connect to
+        - Each file insertion is wrapped in a transaction
+        - Progress is displayed using tqdm
+        - Errors during insertion will trigger a rollback for that specific file
+    """
     if not parquets:
         logger.warning("No parquet files to process.")
         return
@@ -297,6 +356,25 @@ def insert_into_db_from_parquet_file(parquets: list[tuple[str, Path]]) -> None:
 
 
 def get_all_the_unique_gnis_that_are_in_all_three_tables_in_the_database(cursor: duckdb.DuckDBPyConnection) -> set[str]:
+    """
+    Retrieve all unique GNIS identifiers that exist in all three database tables.
+    
+    This function executes a SQL query that finds GNIS identifiers that have matching
+    content (via CID) across the embeddings, html, and citations tables. This identifies
+    locations with complete data across all three tables.
+    
+    Args:
+        cursor (duckdb.DuckDBPyConnection): A cursor to the DuckDB database connection
+            that contains the three tables (embeddings, html, and citations).
+    
+    Returns:
+        set[str]: A set of unique GNIS identifiers present in all three tables
+    
+    Note:
+        - Uses INNER JOIN to ensure only GNISes with records in all tables are returned
+        - Returns an empty set if an error occurs
+        - Logs the count of unique GNIS identifiers found
+    """
     try:
         query = '''
             SELECT DISTINCT e.gnis
@@ -315,6 +393,28 @@ def get_all_the_unique_gnis_that_are_in_all_three_tables_in_the_database(cursor:
 
 
 def check_for_complete_set_of_parquet_files(unique_gnis: set[str], base_path: Path) -> list[list[tuple[str, Path]]]:
+    """
+    Check for complete sets of parquet files (citation, html, and embedding) for each GNIS.
+    
+    This function finds all citation parquet files and then checks if corresponding HTML
+    and embedding parquet files exist for each GNIS. It only includes a GNIS in the result
+    if all three file types exist and the citation file is readable.
+    
+    Args:
+        unique_gnis (set[str]): Set of GNIS identifiers to exclude (already in the database)
+        base_path (Path): Base directory path for parquet files
+    
+    Returns:
+        list[list[tuple[str, Path]]]: A list of lists containing tuples of (table_name, file_path),
+            organized by file type [citations_list, html_list, embeddings_list]
+    
+    Note:
+        - The base_path is overridden to use the path from configs
+        - Files are verified for existence before inclusion
+        - Citation files are also loaded to verify they are not corrupted
+        - Missing files are logged to a CSV file
+        - Files for GNISes already in the database are skipped
+    """
     # Find all citation files
     base_path = configs.AMERICAN_LAW_DATA_DIR / "parquet_files"
     citation_files = list(base_path.glob("**/*_citation.parquet"))
@@ -377,6 +477,26 @@ def check_for_complete_set_of_parquet_files(unique_gnis: set[str], base_path: Pa
 
 
 def upload_files_to_database(parquet_list: list[list[tuple[str, Path]]]) -> None:
+    """
+    Upload parquet files to their corresponding databases using parallel processing.
+    
+    This function uses process pooling to upload multiple parquet files in parallel.
+    It processes the list of lists of parquet files, sending each list to a separate
+    process for insertion into the appropriate database.
+    
+    Args:
+        parquet_list (list[list[tuple[str, Path]]]): A list of lists containing tuples of 
+            (table_name, file_path) organized by file type. Each sublist represents one 
+            type of data (citations, html, or embeddings).
+    
+    Returns:
+        None
+    
+    Note:
+        - Uses run_in_process_pool for parallel processing
+        - Logs the status of each processing job
+        - Each sublist is processed by a separate process
+    """
     for input, output in run_in_process_pool(insert_into_db_from_parquet_file, parquet_list):
         if output:
             logger.info(f"Processed {input} successfully.")
@@ -386,6 +506,29 @@ def upload_files_to_database(parquet_list: list[list[tuple[str, Path]]]) -> None
 
 
 def merge_database_into_the_american_law_db(cursor: duckdb.DuckDBPyConnection) -> None:
+    """
+    Merge individual databases (citations, embeddings, html) into the main american_law.db.
+    
+    This function iterates through all defined databases in DB_DICT, attaches each one
+    to the american_law.db connection, and copies their data in chunks to manage memory usage.
+    It handles large datasets by splitting them into manageable chunks and includes retry
+    logic for failed chunks.
+    
+    Args:
+        cursor (duckdb.DuckDBPyConnection): Cursor to the american_law.db database connection
+    
+    Returns:
+        None
+    
+    Note:
+        - Skips tables that already exist in the target database
+        - Skips attempting to merge the american_law.db with itself
+        - Uses memory-efficient chunking based on estimated table size
+        - Implements retry logic with smaller batches for failed chunks
+        - Verifies the successful transfer of all rows
+        - Each operation is wrapped in a transaction for atomicity
+        - Database connections are properly detached in a finally block
+    """
     # Merge the databases into one 'american_law.db'
     logger.info("Merging databases into american_law.db")
     

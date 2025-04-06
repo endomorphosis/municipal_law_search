@@ -14,20 +14,42 @@ def run_in_process_pool(
         max_concurrency: Optional[int] = None,
         ) -> Generator[None, None, tuple[Any, Optional[Any]]]:
     """
-    Calls the function ``func`` on the values ``inputs``.
-
-    ``func`` should be a function that takes a single input, which is the
-    individual values in the iterable ``inputs``.
-
-    Generates (input, output) tuples as the calls to ``func`` complete.
-
+    Execute a function across multiple inputs in parallel using separate processes.
+    
+    This function processes a collection of inputs by applying the provided function
+    to each input using a process pool for parallel execution. It yields results as
+    they complete rather than waiting for all to finish. This is ideal for CPU-bound
+    operations that benefit from true parallel execution.
+    
+    Args:
+        func (Callable): A function that takes a single input argument. This function
+            will be called once for each item in the inputs collection.
+        inputs (Container): A collection of input values to process. Each element will
+            be passed individually to the function.
+        max_concurrency (Optional[int], optional): Maximum number of concurrent processes.
+            If None, defaults to (CPU cores - 1). Defaults to None.
+            
+    Returns:
+        Generator[None, None, tuple[Any, Optional[Any]]]: A generator that yields
+            (input, output) pairs as the function calls complete, where:
+            - input: The original input value passed to the function
+            - output: The return value from calling func(input)
+            
+    Note:
+        - Results are yielded in the order they complete, not in the order of inputs
+        - Progress is displayed using tqdm
+        - For I/O-bound operations, consider using run_in_thread_pool instead
+        - This function properly cleans up resources even if exceptions occur
+        - Multiprocessing has overhead, so this is best for compute-intensive tasks
+    
+    Example:
+        >>> def complex_calculation(x):
+        ...     return x ** 3
+        >>> for input_val, result in run_in_process_pool(complex_calculation, range(10)):
+        ...     print(f"{input_val}³ = {result}")
+    
     See https://alexwlchan.net/2019/10/adventures-with-concurrent-futures/ for an explanation
     of how this function works.
-
-    Args:
-        func: The function to call on each input.
-        inputs: An iterable of inputs to pass to the function.
-        max_concurrency: The maximum number of concurrent workers. If None, defaults to all CPU cores minus one.
     """
 
     # Default to using all CPU cores but one.
@@ -77,20 +99,41 @@ async def async_run_in_process_pool(
         max_concurrency: Optional[int] = None
         ) -> AsyncGenerator[None, tuple[Any, Optional[Any]]]:
     """
-    Asynchronous version of run_in_process_pool using an event loop.
-
-    Calls the function ``func`` on the values ``inputs`` within a ProcessPoolExecutor,
-    but uses asyncio to handle the futures without blocking the event loop.
-
-    ``func`` should be a function that takes a single input, which is the
-    individual values in the iterable ``inputs``.
-
-    Asynchronously yields (input, output) tuples as the calls to ``func`` complete.
-
+    Asynchronously execute a function across multiple inputs using separate processes.
+    
+    This is the asynchronous version of run_in_process_pool that integrates with asyncio.
+    It processes a collection of inputs by applying the provided function to each input
+    using a process pool, but allows other asynchronous operations to continue while
+    waiting for results by not blocking the event loop.
+    
     Args:
-        func: The function to call on each input.
-        inputs: An iterable of inputs to pass to the function.
-        max_concurrency: The maximum number of concurrent workers. If None, defaults to all CPU cores minus one.
+        func (Callable | Coroutine): A function or coroutine that takes a single input argument.
+            This function will be called once for each item in the inputs collection.
+        inputs (Container): A collection of input values to process. Each element will
+            be passed individually to the function.
+        max_concurrency (Optional[int], optional): Maximum number of concurrent processes.
+            If None, defaults to (CPU cores - 1). Defaults to None.
+            
+    Returns:
+        AsyncGenerator[None, tuple[Any, Optional[Any]]]: An async generator that yields
+            (input, output) pairs as the function calls complete, where:
+            - input: The original input value passed to the function
+            - output: The return value from calling func(input)
+            
+    Note:
+        - Results are yielded in the order they complete, not in the order of inputs
+        - Progress is displayed using tqdm
+        - This function integrates with the asyncio event loop
+        - The event loop remains responsive to other tasks while processing
+        - Proper resource cleanup occurs even if exceptions are raised
+        - Use 'async for' to iterate over the results
+    
+    Example:
+        >>> async def process_data():
+        ...     async def complex_calculation(x):
+        ...         return x ** 3
+        ...     async for input_val, result in async_run_in_process_pool(complex_calculation, range(10)):
+        ...         print(f"{input_val}³ = {result}")
     """
     # Default to using all CPU cores but one.
     if max_concurrency is None:

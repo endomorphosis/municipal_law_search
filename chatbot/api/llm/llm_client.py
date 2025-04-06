@@ -1,25 +1,33 @@
 """
-OpenAI Client implementation for American Law database.
+LLM Client implementation for American Law database.
 Provides integration with OpenAI APIs and RAG components for legal research.
 """
-import os
-import numpy as np
-from typing import List, Dict, Any, Optional
-from openai import AsyncOpenAI, OpenAI, OpenAIError
 import asyncio
+import os
 from pathlib import Path
 import sqlite3
-from typing import Annotated, Callable, Coroutine, Literal, Never
+from typing import Annotated, Any, Callable, Coroutine, Dict, List, Literal, Never, Optional
+
 
 import duckdb
 import numpy as np
 import pandas as pd
-from pydantic import AfterValidator as AV, BaseModel, BeforeValidator as BV, computed_field, PrivateAttr, TypeAdapter, ValidationError
+from openai import AsyncOpenAI, OpenAI, OpenAIError
+from pydantic import (
+    AfterValidator as AV, 
+    BaseModel, 
+    BeforeValidator as BV, 
+    computed_field, 
+    Field,
+    PrivateAttr, 
+    TypeAdapter, 
+    ValidationError
+)
 import tiktoken
 
 
-from logger import logger
 from configs import configs, Configs
+from logger import logger
 from utils.chatbot.clean_html import clean_html
 from utils.safe_format import safe_format
 from utils.llm.cosine_similarity import cosine_similarity
@@ -251,7 +259,7 @@ class LLMOutput(BaseModel):
     system_prompt: str
     user_message: str
     context_used: int
-    response_parser: Callable
+    response_parser: Callable = Field(default_factory=lambda: lambda x: x)
 
     _configs: Configs = PrivateAttr(default=configs)
 
@@ -392,7 +400,6 @@ class AsyncLLMClient:
         self, 
         resources: dict = None,
         configs: Configs = None,
-
         api_key: str = None,
         model: str = "gpt-4o",
         embedding_model: str = "text-embedding-3-small",
@@ -404,13 +411,12 @@ class AsyncLLMClient:
         Initialize the OpenAI client for American Law dataset RAG.
         
         Args:
-            api_key: OpenAI API key (defaults to OPENAI_API_KEY env variable)
-            model: OpenAI model to use for completion/chat
-            embedding_model: OpenAI model to use for embeddings
+            api_key: the LLM API key (defaults to OPENAI_API_KEY env variable)
+            model: An LLM model to use for completion/chat
+            embedding_model: An embedding model to use for embeddings
             embedding_dimensions: Dimensions of the embedding vectors
             temperature: Temperature setting for LLM responses
             max_tokens: Maximum tokens for LLM responses
-            configs: Configuration object
         """
         self.resources = resources
         self.configs = configs

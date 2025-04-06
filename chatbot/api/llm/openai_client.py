@@ -99,41 +99,90 @@ MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS = {
     }
 }
 
-def _calc_cost(x: int, cost_per_1M: float):
+def _calc_cost(x: int, cost_per_1M: float) -> float:
+    """
+    Calculate the cost of tokens based on the per-million token rate.
+    
+    Args:
+        x (int): Number of tokens
+        cost_per_1M (float): Cost per million tokens in USD
+        
+    Returns:
+        float: Cost in USD
+    """
     if cost_per_1M is None:
         return 0
     else:
         return (x / 10**6) * cost_per_1M
 
 def calculate_cost(prompt: str, data: str, output: str, model: str) -> Optional[float]:
+    """
+    Calculate the cost of an OpenAI API call based on input and output tokens.
+    
+    This function calculates the cost of a completion or chat request by counting
+    tokens in the prompt, data, and output, then applying the appropriate pricing
+    for the specified model.
+    
+    Args:
+        prompt (str): The system prompt text
+        data (str): The user message/data text
+        output (str): The model's response text
+        model (str): The OpenAI model name (e.g., "gpt-4o", "gpt-3.5-turbo")
+        
+    Returns:
+        Optional[float]: The estimated cost in USD, or None if calculation failed
+        
+    Note:
+        - Costs are calculated based on current pricing in MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS
+        - Token counts may not be exact due to encoding differences
+        - Returns None if the model is not found in the pricing table
+    """
     # Initialize the tokenizer for the GPT model
     if model not in MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS:
         logger.error(f"Model {model} not found in usage costs.")
-        return
+        return None
 
     if model not in tiktoken.model.MODEL_PREFIX_TO_ENCODING.keys() or model not in tiktoken.model.MODEL_TO_ENCODING.keys():
         logger.error(f"Model {model} not found in tiktoken.")
-        return
+        return None
 
-    tokenizer = tiktoken.encoding_for_model(model)
+    try:
+        tokenizer = tiktoken.encoding_for_model(model)
 
-    # Counting the total tokens for request and response separately
-    input_tokens = len(tokenizer.encode(prompt + data))
-    output_tokens = len(tokenizer.encode(str(output)))
+        # Counting the total tokens for request and response separately
+        input_tokens = len(tokenizer.encode(prompt + data))
+        output_tokens = len(tokenizer.encode(str(output)))
 
-    # Actual costs per 1 million tokens
-    cost_per_1M_input_tokens = MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS[model]["input"]
-    cost_per_1M_output_tokens = MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS[model]["output"]
+        # Actual costs per 1 million tokens
+        cost_per_1M_input_tokens = MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS[model]["input"]
+        cost_per_1M_output_tokens = MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS[model]["output"]
 
-    # Calculate the cost, then add them.
-    output_cost = _calc_cost(output_tokens, cost_per_1M_output_tokens)
-    input_cost = _calc_cost(input_tokens, cost_per_1M_input_tokens)
-    total_cost = round(input_cost + output_cost, 2) if total_cost > 0 else 0 
-    logger.debug(f"Total Cost: {total_cost} Cost breakdown:\n'input_tokens': {input_tokens}\n'output_tokens': {output_tokens}\n'input_cost': {input_cost}, 'output_cost': {output_cost}")
-    return total_cost
+        # Calculate the cost, then add them.
+        output_cost = _calc_cost(output_tokens, cost_per_1M_output_tokens)
+        input_cost = _calc_cost(input_tokens, cost_per_1M_input_tokens)
+        total_cost = round(input_cost + output_cost, 2)
+        
+        logger.debug(f"Total Cost: {total_cost} Cost breakdown:\n'input_tokens': {input_tokens}\n'output_tokens': {output_tokens}\n'input_cost': {input_cost}, 'output_cost': {output_cost}")
+        return total_cost
+    except Exception as e:
+        logger.error(f"Error calculating cost: {e}")
+        return None
 
 
 class LLMOutput(BaseModel):
+    """
+    Model representing the output from an LLM interaction.
+    
+    This class encapsulates the response from an LLM, including the original input,
+    prompt, and provides utilities for cost calculation and response parsing.
+    
+    Attributes:
+        llm_response (str): The raw text response from the LLM
+        system_prompt (str): The system prompt that was used
+        user_message (str): The user message that was sent
+        context_used (int): Number of context tokens used
+        response_parser (Callable): Function to parse the LLM response
+    """
     llm_response: str
     system_prompt: str
     user_message: str
@@ -145,18 +194,48 @@ class LLMOutput(BaseModel):
     @computed_field # type: ignore[prop-decorator]
     @property
     def cost(self) -> float:
+        """
+        Calculate the cost of this LLM interaction.
+        
+        Returns:
+            float: The estimated cost in USD
+        """
         if self.llm_response is not None:
-            return calculate_cost(self.system_prompt, self.user_message, self.llm_response, self._configs.OPENAI_MODEL)
+            cost = calculate_cost(self.system_prompt, self.user_message, self.llm_response, self._configs.OPENAI_MODEL)
+            return cost if cost is not None else 0
         else: 
             return 0
 
     @computed_field # type: ignore[prop-decorator]
     @property
     def parsed_llm_response(self) -> Any:
-        return self.llm_response_parser(self.llm_response)
+        """
+        Parse the LLM response using the provided parser function.
+        
+        Returns:
+            Any: The parsed response in the format determined by the parser
+        """
+        return self.response_parser(self.llm_response)
 
 
 class LLMInput(BaseModel):
+    """
+    Model representing an input to an LLM for generating a response.
+    
+    This class encapsulates all parameters needed for an LLM API call, including
+    the message, system prompt, and generation parameters. It also provides properties
+    that execute the LLM call and retrieve responses or embeddings.
+    
+    Attributes:
+        client (BaseModel): The OpenAI client instance
+        user_message (str): The user's message to the LLM
+        system_prompt (str): The system prompt for the LLM (default: "You are a helpful assistant.")
+        use_rag (bool): Whether to use retrieval-augmented generation (default: False)
+        max_tokens (int): Maximum tokens in the response (default: 4096)
+        temperature (float): Temperature for response generation (default: 0)
+        response_parser (Callable): Function to parse the LLM response (default: identity function)
+        format_dict (Optional[dict]): Dictionary for response formatting (default: None)
+    """
     client: BaseModel
     user_message: str
     system_prompt: str = "You are a helpful assistant."
@@ -171,6 +250,15 @@ class LLMInput(BaseModel):
     @computed_field # type: ignore[prop-decorator]
     @property
     def response(self) -> Optional[LLMOutput]:
+        """
+        Generate a response from the LLM using the configured parameters.
+        
+        This property sends the user message and system prompt to the LLM API
+        and returns the structured response.
+        
+        Returns:
+            Optional[LLMOutput]: The structured LLM response or an error message string
+        """
         try:
             _response = self.client.chat.completions.create(
                 model=self._configs.OPENAI_MODEL,
@@ -187,12 +275,11 @@ class LLMInput(BaseModel):
 
         if _response.choices[0].message.content:
             return LLMOutput(
-                response=_response.choices[0].message.content.strip(),
+                llm_response=_response.choices[0].message.content.strip(),
                 system_prompt=self.system_prompt.strip(),
                 user_message=self.user_message,
                 context_used=_response.usage.total_tokens,
-                model=self._configs.OPENAI_MODEL,
-                response_parser=self.llm_response_parser,
+                response_parser=self.response_parser,
             )
         else:
             return "No response generated. Please try again."
@@ -201,13 +288,14 @@ class LLMInput(BaseModel):
     @property
     def embedding(self) -> List[float]:
         """
-        Generate an embedding for the user's message.
+        Generate an embedding vector for the user's message.
         
-        Args:
-            text: Text string to generate an embedding for
-            
+        This property uses the OpenAI embeddings API to create a vector
+        representation of the user's message, which can be used for
+        semantic search or similarity comparison.
+        
         Returns:
-            Embedding vector
+            List[float]: The embedding vector or empty list if generation failed
         """
         try:
             embeddings = self.client.embeddings.create(
@@ -226,6 +314,14 @@ class LLMInput(BaseModel):
 
 
 class LLMEngine(BaseModel):
+    """
+    Base model for LLM engine implementations.
+    
+    This is a placeholder class that serves as a base for different LLM engine
+    implementations. It defines the basic interface for an LLM engine but
+    currently doesn't contain any functionality. Future implementations
+    will extend this class with specific engine capabilities.
+    """
     pass
 
 
@@ -456,14 +552,25 @@ class OpenAIClient:
         """
         Generate a response using RAG (Retrieval Augmented Generation).
         
+        This method retrieves relevant legal documents based on the query,
+        builds a context from them, and then generates a response using the LLM
+        with the retrieved context as additional information.
+        
         Args:
-            query: User query
-            use_embeddings: Whether to use embeddings for search
-            top_k: Number of context documents to include
-            system_prompt: Custom system prompt
+            query (str): User's query about legal information
+            use_embeddings (bool, optional): Whether to use embeddings for semantic search.
+                If False, will use text-based search instead. Defaults to True.
+            top_k (int, optional): Number of context documents to include. Defaults to 5.
+            system_prompt (Optional[str], optional): Custom system prompt to override
+                the default legal assistant prompt. Defaults to None.
             
         Returns:
-            Dictionary with the generated response and context used
+            Dict[str, Any]: Dictionary with the generated response and metadata:
+                - query: The original query
+                - response: The generated response text
+                - context_used: List of citations for the documents used as context
+                - model_used: The LLM model used
+                - total_tokens: Total tokens used, or error message if generation failed
         """
         # Retrieve relevant context
         context_docs = []
@@ -483,11 +590,10 @@ class OpenAIClient:
             context_text += f"[{i+1}] {doc.get('title', 'Untitled')} - {doc.get('place_name', 'Unknown location')}, {doc.get('state_name', 'Unknown state')}\n"
             references += f"{i+1}. {doc.get('bluebook_citation', 'No citation available')}\n"
             context_text += f"Citation: {doc.get('bluebook_citation', 'No citation available')}\n"
-            # Limit html to avoid excessively long prompts
-            html = doc.get('html', '')
-            if html:
-                # Turn the HTML into a string.
-                content = clean_html(html)
+            # Limit content to avoid excessively long prompts
+            content = doc.get('content', '')
+            if content:
+                # Truncate content if it's too long
                 content = content[:1000] + "..." if len(content) > 1000 else content
                 context_text += f"Content: {content}\n\n"
         
@@ -509,25 +615,35 @@ class OpenAIClient:
             context=context_text
         )
         try:
-            output = LLMInput(
+            llm_input = LLMInput(
                 client=self.client,
                 user_message=prompt.user_prompt.content,
                 system_prompt=prompt.system_prompt.content,
                 max_tokens=prompt.settings.max_tokens,
                 temperature=prompt.settings.temperature,
             )
-            output = output.response
-
-            # Append the citations
-            generated_response += f"\n\n{references.strip()}" if output is not None else "No response generated. Please try again."
-
-            return {
-                "query": query,
-                "response": generated_response,
-                "context_used": [doc.get('bluebook_citation', 'No citation') for doc in context_docs],
-                "model_used": self.model,
-                "total_tokens": output.usage.total_tokens
-            }
+            output = llm_input.response
+            
+            if isinstance(output, LLMOutput):
+                # Generate the complete response with citations
+                generated_response = output.llm_response + f"\n\n{references.strip()}"
+                
+                return {
+                    "query": query,
+                    "response": generated_response,
+                    "context_used": [doc.get('bluebook_citation', 'No citation') for doc in context_docs],
+                    "model_used": self.model,
+                    "total_tokens": output.context_used
+                }
+            else:
+                # In case output is a string error message
+                return {
+                    "query": query,
+                    "response": str(output),
+                    "context_used": [doc.get('bluebook_citation', 'No citation') for doc in context_docs],
+                    "model_used": self.model,
+                    "error": "Response generation failed"
+                }
             
         except Exception as e:
             logger.error(f"Error generating RAG response: {e}")

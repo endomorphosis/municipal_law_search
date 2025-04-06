@@ -5,24 +5,88 @@ from typing import Any, BinaryIO, overload
 
 
 def get_hash(string: str) -> str:
+    """
+    Generate a SHA-256 hash for a given string.
+    
+    Args:
+        string (str): The string to hash
+        
+    Returns:
+        str: The hexadecimal digest of the SHA-256 hash
+    """
     return hashlib.sha256(string.encode()).hexdigest()
 
 def hash_string(hashable: str) -> str:
+    """
+    Generate a SHA-256 hash for a string.
+    
+    Args:
+        hashable (str): The string to hash
+        
+    Returns:
+        str: The hexadecimal digest of the SHA-256 hash
+        
+    Note:
+        This is a convenience wrapper around get_hash
+    """
     return get_hash(hashable)
 
 def hash_set(hashable: set, hash_elements = True) -> str|set[str]:
+    """
+    Generate a hash for a set.
+    
+    Args:
+        hashable (set): The set to hash
+        hash_elements (bool, optional): If True, hash each element of the set.
+            If False, hash the string representation of the entire set. Defaults to True.
+            
+    Returns:
+        str|set[str]: If hash_elements is True, returns a set of hashes for each element.
+            Otherwise, returns a single hash for the entire set.
+    """
     return hash_list(list(hashable), hash_elements)
 
 def hash_list(hashable: list, hash_elements = True) -> str|list[str]:
+    """
+    Generate a hash for a list.
+    
+    Args:
+        hashable (list): The list to hash
+        hash_elements (bool, optional): If True, hash each element of the list.
+            If False, hash the string representation of the entire list. Defaults to True.
+            
+    Returns:
+        str|list[str]: If hash_elements is True, returns a list of hashes for each element.
+            Otherwise, returns a single hash for the entire list.
+    """
     if hash_elements:
         return [GetHash.make_hash(element) for element in hashable]
     else:
         return get_hash(str(hashable))
 
 def hash_file_path(hashable: Path) -> str:
+    """
+    Generate a hash for a file path.
+    
+    Args:
+        hashable (Path): The file path to hash
+        
+    Returns:
+        str: A hash of the string representation of the path
+    """
     return get_hash(str(hashable))
 
 def hash_file(hashable: Path, chunk_size = 8192) -> str:
+    """
+    Generate a hash for a file's contents by reading it in chunks.
+    
+    Args:
+        hashable (Path): The path to the file to hash
+        chunk_size (int, optional): The size of chunks to read the file in. Defaults to 8192.
+        
+    Returns:
+        str: The hexadecimal digest of the SHA-256 hash of the file's contents
+    """
     sha256 = hashlib.sha256()
     with hashable.open("rb") as file:
         while True:
@@ -33,6 +97,17 @@ def hash_file(hashable: Path, chunk_size = 8192) -> str:
     return sha256.hexdigest()
 
 def hash_file_name(hashable: Path, hash_extension_too: bool = False) -> str:
+    """
+    Generate a hash for a file name.
+    
+    Args:
+        hashable (Path): The path containing the filename to hash
+        hash_extension_too (bool, optional): If True, include the file extension in the hash.
+            If False, only hash the stem of the filename. Defaults to False.
+            
+    Returns:
+        str: A hash of the filename
+    """
     of_file_name = hashable.name if hash_extension_too else hashable.stem
     return get_hash(of_file_name)
 
@@ -41,6 +116,24 @@ def hash_file_directory(
         recursive: bool = False, 
         hash: str = "files_names_and_directories"
     ) -> str:
+    """
+    Generate a hash for the contents of a directory.
+    
+    Args:
+        hashable (Path): The directory path to hash
+        recursive (bool, optional): If True, include subdirectories recursively.
+            If False, only include top-level files and directories. Defaults to False.
+        hash (str, optional): What to include in the hash. Options are:
+            - "files_names_and_directories": Hash both files and directory names (default)
+            - "file_names": Hash only file names
+            - "directories": Hash only directory names
+            
+    Returns:
+        str: A hash or list of hashes depending on the content
+        
+    Raises:
+        ValueError: If hash is not one of the allowed values
+    """
 
     if hash not in ["directories", "file_names", "files_names_and_directories"]:
         raise ValueError("hash must be 'directories', 'files', or 'files_and_directories'")
@@ -59,6 +152,21 @@ def hash_file_directory(
     return hash_list(things_to_hash)
 
 def hash_dict(hashable: dict, hash_keys: bool = True, hash_values: bool = True) -> str|dict[str, str]:
+    """
+    Generate hashes for a dictionary, either for its keys, values, or both.
+    
+    Args:
+        hashable (dict): The dictionary to hash
+        hash_keys (bool, optional): Whether to hash the keys. Defaults to True.
+        hash_values (bool, optional): Whether to hash the values. Defaults to True.
+        
+    Returns:
+        str|dict[str, str]: A dictionary with hashed keys, values, or both, depending on
+            the hash_keys and hash_values parameters.
+            
+    Raises:
+        ValueError: If both hash_keys and hash_values are False
+    """
     if hash_keys and hash_values:
         return {GetHash.make_hash(key): GetHash.make_hash(value) for key, value in hashable.items()}
     elif hash_keys:
@@ -69,9 +177,27 @@ def hash_dict(hashable: dict, hash_keys: bool = True, hash_values: bool = True) 
         raise ValueError("hash_keys and hash_values cannot both be False")
 
 def hash_bytes(hashable: bytes) -> str:
+    """
+    Generate a SHA-256 hash for a bytes object.
+    
+    Args:
+        hashable (bytes): The bytes object to hash
+        
+    Returns:
+        str: The hexadecimal digest of the SHA-256 hash
+    """
     return hashlib.sha256(hashable).hexdigest()
 
 def hash_tuple(hashable: tuple) -> str:
+    """
+    Generate a hash for a tuple by hashing each element.
+    
+    Args:
+        hashable (tuple): The tuple to hash
+        
+    Returns:
+        str: A list of hashes, one for each element in the tuple
+    """
     return hash_list(list(hashable), hash_elements=True)
 
 _HASH_FUNCTION_DICT = {
