@@ -44,8 +44,8 @@ def get_embedding_cids_for_all_the_cids(
             embedding_id_list: list[tuple] = []
             for i, row in enumerate(batch, start=1):
                 if i == 1:
-                    cid_string = f" cid = {row['cid']}"
-                cid_string += f" OR cid = {row['cid']}"
+                    cid_string = f" cid = '{row['cid']}'"
+                cid_string += f" OR cid = '{row['cid']}'"
 
             # Query the embeddings table using the current row's cid
             try: # TODO: Make it so I can select multiple rows at once.
@@ -54,7 +54,7 @@ def get_embedding_cids_for_all_the_cids(
                     FROM embeddings 
                     WHERE
                     ''' + cid_string + ";", 
-                )
+                ).fetchall()
                 for row in embedding_ids:
                     embedding_id_list.append({'embedding_cid': row[0], 'cid': row[1]})
             except IndexError:

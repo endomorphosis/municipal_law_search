@@ -38,3 +38,4 @@ openai
 multiformats
 requests
 tiktoken
+sse-starlette

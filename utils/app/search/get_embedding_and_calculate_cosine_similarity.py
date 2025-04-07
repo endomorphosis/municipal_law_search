@@ -55,7 +55,7 @@ def get_embedding_and_calculate_cosine_similarity(
 
                 # Calculate the cosine similarity
                 similarity_score: np.float64 = cosine_similarity(query_embedding, law_embedding)
-                logger.debug(f"\nCosine similarity score: {similarity_score}")
+                #logger.debug(f"\nCosine similarity score: {similarity_score}")
 
                 # Yield the CID if the similarity score exceeds the threshold
                 if similarity_score >= configs.SIMILARITY_SCORE_THRESHOLD:

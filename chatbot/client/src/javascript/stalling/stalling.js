@@ -66,7 +66,7 @@ function connectToStallingMessages(requestId) {
 }
 
 // Modified search function
-async function performSearch(query, page = 1, perPage = 20, useLLM = true) {
+async function performSearch(query, page = 1, perPage = 20) {
   // Show loading immediately
   if (loadingContainer) {
     loadingContainer.style.display = 'block';
@@ -79,7 +79,7 @@ async function performSearch(query, page = 1, perPage = 20, useLLM = true) {
     connectToStallingMessages(tempRequestId);
     
     // Make the search request
-    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}&use_llm=${useLLM}`);
+    const response = await fetch(`/api/search/sse?q=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`);
     const data = await response.json();
     
     // Use the real request ID from the response

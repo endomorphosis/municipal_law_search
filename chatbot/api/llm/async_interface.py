@@ -189,7 +189,7 @@ class AsyncLLMInterface:
         )
         if response.results[0].flagged:
             logger.warning(f"Message flagged by moderation: {message}")
-            return "OTHER"
+            return "FLAGGED"
  
         logger.debug(f"Entering Determine Intent")
         system_prompt = """

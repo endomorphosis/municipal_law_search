@@ -41,3 +41,7 @@ def get_html_db(read_only: bool = True, use_duckdb: bool = True):
 def get_embeddings_db(read_only: bool = True, use_duckdb: bool = True):
     """Get connection to embeddings database."""
     return _get_db(american_law_db_path, use_duckdb, read_only)
+
+def get_american_law_db(read_only: bool = True, use_duckdb: bool = True):
+    """Get connection to citation database."""
+    return _get_db(american_law_db_path, use_duckdb, read_only)

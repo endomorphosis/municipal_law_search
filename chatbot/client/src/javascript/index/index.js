@@ -5,6 +5,10 @@ let totalPages = 1;
 let hasSearched = false; // Track if a search has been performed
 let stallingSSSE = null; // Server-Sent Events connection for stalling messages
 
+// SSE global variables
+let eventSource = null;
+let resultsAccumulator = null;
+
 // DOM elements
 document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('searchInput');
@@ -25,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Stalling messages that can be displayed while searching
     const STALLING_MESSAGES = [
         "Alright, let me get to work on this.",
-        "I'm parsing your request into SQL...",
+        "I'm parsing your request...",
         "Searching the legal database for relevant information...",
         "Analyzing your query...",
         "Looking through American law documents...",
@@ -97,7 +101,8 @@ document.addEventListener('DOMContentLoaded', () => {
         stallingContainer.style.display = 'none';
     }
 
-    async function searchLaws(query, page = 1) {
+    // New method to use SSE for searching
+    function searchLawsSSE(query, page = 1, perPage = 20) {
         // Set hasSearched flag to true
         hasSearched = true;
         
@@ -112,39 +117,120 @@ document.addEventListener('DOMContentLoaded', () => {
         
         resultsDiv.innerHTML = '';
         
-        try {
-            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&page=${page}`);
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
+        // Close any existing EventSource connection
+        if (eventSource) {
+            eventSource.close();
+        }
+        
+        // Initialize results accumulator
+        resultsAccumulator = {
+            results: [],
+            total: 0,
+            page: page,
+            per_page: 0,
+            total_pages: 0
+        };
+        
+        // Create a new EventSource connection
+        const url = `/api/search/sse?q=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`;
+        eventSource = new EventSource(url);
+        
+        // Handle the search_started event
+        eventSource.addEventListener('search_started', function(event) {
+            const data = JSON.parse(event.data);
+            console.log('Search started:', data);
+            // You could update your UI here to indicate the search has started
+        });
+        
+        // Handle the results_update event
+        eventSource.addEventListener('results_update', function(event) {
+            const data = JSON.parse(event.data);
             
-            const data = await response.json();
+            // Update our accumulator with the latest results
+            resultsAccumulator = data;
             
-            // Stop showing stalling messages
-            stopStallingMessages();
+            // Update the UI with the latest results
+            displayResults(data.results);
+            displayPagination(data.total_pages);
             
             // Show the results and pagination containers
             document.getElementById('results').style.display = 'block';
             document.getElementById('pagination').style.display = 'flex';
             
-            displayResults(data.results);
-            displayPagination(data.total_pages);
+            // You could display an interim message here
+            if (data.results.length > 0) {
+                showToast(`Found ${data.results.length} results so far...`, 'info');
+            }
+        });
+        
+        // Handle the search_complete event
+        eventSource.addEventListener('search_complete', function(event) {
+            const data = JSON.parse(event.data);
+            console.log('Search completed:', data);
             
-            if (data.results.length === 0 && query) {
+            // Stop showing stalling messages
+            stopStallingMessages();
+            
+            // Show final results message
+            if (resultsAccumulator.results.length === 0 && query) {
                 showToast('No results found. Try different keywords.', 'error');
             } else if (query) {
-                showToast(`Found ${data.total} results`, 'success');
+                showToast(`Found ${resultsAccumulator.total} results`, 'success');
             }
-        } catch (error) {
-            console.error('Error searching laws:', error);
-            showToast('An error occurred while searching. Please try again.', 'error');
+            
+            // Close the connection
+            eventSource.close();
+            eventSource = null;
+        });
+        
+        // Handle errors
+        eventSource.addEventListener('error', function(event) {
+            console.error('EventSource error:', event);
+            
+            if (event.data) {
+                const data = JSON.parse(event.data);
+                showToast(`Error: ${data.message}`, 'error');
+            } else {
+                showToast('An error occurred while searching. Please try again.', 'error');
+            }
+            
+            // Stop showing stalling messages
             stopStallingMessages();
-        } finally {
-            // Make sure loading elements are hidden
-            setLoading(false);
+            
+            // Close the connection
+            eventSource.close();
+            eventSource = null;
+        });
+    }
+
+    // Update your existing event listeners to use the new SSE search function
+    searchButton.addEventListener('click', () => {
+        const query = searchInput.value.trim();
+        searchLawsSSE(query);
+    });
+
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const query = e.target.value.trim();
+            searchLawsSSE(query);
+        }
+    });
+
+    // Add a cleanup function to close the EventSource when needed
+    function cleanupEventSource() {
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
         }
     }
 
+    // Call this cleanup function when appropriate (e.g., when component unmounts or page unloads)
+    window.addEventListener('beforeunload', cleanupEventSource);
+
+
+
+
+    
     function displayResults(results) {
         resultsDiv.innerHTML = '';
         
@@ -236,7 +322,7 @@ document.addEventListener('DOMContentLoaded', () => {
         button.textContent = text;
         button.setAttribute('aria-label', `Page ${text}`);
         
-        button.addEventListener('click', () => searchLaws(currentQuery, page));
+        button.addEventListener('click', () => searchLawsSSE(currentQuery, page));
         return button;
     }
 
@@ -298,13 +384,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event Listeners
     searchButton.addEventListener('click', () => {
         const query = searchInput.value.trim();
-        searchLaws(query);
+        searchLawsSSE(query);
     });
 
     searchInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             const query = e.target.value.trim();
-            searchLaws(query);
+            searchLawsSSE(query);
         }
     });
 
@@ -316,6 +402,17 @@ document.addEventListener('DOMContentLoaded', () => {
             closeModal();
         }
     });
+
+    // Add a cleanup function to close the EventSource when needed
+    function cleanupEventSource() {
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+    }
+
+    // Call this cleanup function when appropriate (e.g., when component unmounts or page unloads)
+    window.addEventListener('beforeunload', cleanupEventSource);
 
     // Hide results and stalling container initially
     document.getElementById('results').style.display = 'none';

@@ -21,15 +21,19 @@ def format_initial_sql_return_from_search(row: dict[str, Any]) -> dict:
             - place_name (str): Name of the place associated with the law
             - state_name (str): Name of the state associated with the law
             - bluebook_citation (str): Formatted Bluebook citation
+            - html (str, optional): HTML content if available
     """
-    return {
+    return_dict = {
         'cid': row.get('cid', "NA"),
         'bluebook_cid': row.get('bluebook_cid', "NA"),
         'title': row.get('title', "NA"),
         'chapter': row.get('chapter', "NA"),
         'place_name': row.get('place_name', "NA"),
         'state_name': row.get('state_name', "NA"),
-        #'date': row.get('date', "NA"),
         'bluebook_citation': row.get('bluebook_citation', "NA")
     }
+    # Additional fields if they exist.
+    if 'html' in row.keys():
+        return_dict['html'] = row.get('html', "Content not available")
+    return return_dict
 

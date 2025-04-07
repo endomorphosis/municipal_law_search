@@ -2,31 +2,34 @@
 OpenAI Client implementation for American Law database.
 Provides integration with OpenAI APIs and RAG components for legal research.
 """
-import os
-import numpy as np
-from typing import List, Dict, Any, Optional
-from openai import AsyncOpenAI
-import asyncio
 from pathlib import Path
-import sqlite3
-from typing import Annotated, Callable, Literal, Never
+from typing import Any, Annotated, Callable, Dict, List, Literal, Never, Optional
+
 
 import duckdb
 import numpy as np
+from openai import AsyncOpenAI
 import pandas as pd
-from pydantic import AfterValidator as AV, BaseModel, BeforeValidator as BV, computed_field, PrivateAttr, TypeAdapter, ValidationError
+from pydantic import (
+    AfterValidator as AV, 
+    BaseModel, 
+    BeforeValidator as BV, 
+    computed_field, 
+    PrivateAttr, 
+    ValidationError
+)
 import tiktoken
 import yaml
 
 
-from logger import logger
+from chatbot.api.llm.constants import MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS
 from configs import configs, Configs
+from logger import logger
+
 from utils.chatbot.clean_html import clean_html
 from utils.safe_format import safe_format
 from utils.llm.cosine_similarity import cosine_similarity 
-#from ._test_db import test_html_db
 
-#test_html_db()
 
 def validate_prompt(prompt: str) -> Never:
     if "role" not in prompt:
@@ -39,11 +42,15 @@ class PromptFields(BaseModel):
     content: str
 
 class Prompt(BaseModel):
-    client: Literal['openai']
+    client: Literal['openai', 'anthropic']
     system_prompt: PromptFields
-    user_prompt: PromptFields   
+    user_prompt: PromptFields
 
     def safe_format(self, **kwargs) -> None:
+        """
+        Safely insert kwargs into the system and user prompts.
+        Only keys that exist in the respective prompt templates will be used for formatting.
+        """
         if not kwargs:
             return self.model_dump()
         
@@ -61,87 +68,6 @@ def _load_prompt_from_yaml(name: str, configs: Configs, **kwargs) -> Prompt:
     with open(prompt_path, 'r') as file:
         prompt = dict(yaml.safe_load(file))
         return Prompt.model_validate(prompt).safe_format(**kwargs)
-
-
-# From: https://platform.openai.com/docs/pricing
-MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS = {
-    "gpt-4o": {
-        "input": 2.50,
-        "output": 10.00
-    },
-    "gpt-4.5-preview": {
-        "input": 75.00,
-        "output": 150.00
-    },
-    "gpt-4-turbo": {
-        "input": 10.00,
-        "output": 30.00
-    },
-    "gpt-4": {
-        "input": 30.00,
-        "output": 60.00
-    },
-    "gpt-4-32k": {
-        "input": 60.00,
-        "output": 120.00
-    },
-    "gpt-3.5-turbo": {
-        "input": 0.50,
-        "output": 1.50
-    },
-    "gpt-3.5-turbo-instruct": {
-        "input": 1.50,
-        "output": 2.00
-    },
-    "gpt-3.5-turbo-16k-0613": {
-        "input": 3.00,
-        "output": 4.00
-    },
-    "gpt-4o-mini": {
-        "input": 0.15,
-        "output": 0.60
-    },
-    "o1": {
-        "input": 15.00,
-        "output": 60.00
-    },
-    "o1-pro": {
-        "input": 150.00,
-        "output": 600.00
-    },
-    "o1-mini": {
-        "input": 1.10,
-        "output": 4.40
-    },
-    "o3-mini": {
-        "input": 1.10,
-        "output": 4.40
-    },
-    "chatgpt-4o-latest": {
-        "input": 5.00,
-        "output": 15.00
-    },
-    "text-embedding-3-small": {
-        "input": 0.02,
-        "output": None
-    },
-    "text-embedding-3-large": {
-        "input": 0.13,
-        "output": None
-    },
-    "text-embedding-ada-002": {
-        "input": 0.10,
-        "output": None
-    },
-    "davinci-002": {
-        "input": 2.00,
-        "output": 2.00
-    },
-    "babbage-002": {
-        "input": 0.40,
-        "output": 0.40
-    }
-}
 
 
 def calculate_cost(prompt: str, data: str, out: str, model: str) -> Optional[int]:

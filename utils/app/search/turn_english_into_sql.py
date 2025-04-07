@@ -1,17 +1,20 @@
 from typing import Optional, Union
 
 
+from pydantic import BaseModel
+
+
 from chatbot.api.llm.interface import LLMInterface
 from chatbot.api.llm.async_interface import AsyncLLMInterface
 from logger import logger
 
 
-async def get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
+async def turn_english_into_sql(
         search_query: str, 
-        use_llm: bool = True, 
         per_page: int = 20, 
         offset: int = 0,
-        llm_interface: Union[LLMInterface, AsyncLLMInterface] = None
+        llm: Union[LLMInterface, AsyncLLMInterface] = None,
+        parser: Optional[BaseModel] = None,
         ) -> Optional[str]:
     """
     Converts a plaintext search query into a SQL command using an LLM asynchronously.
@@ -26,22 +29,22 @@ async def get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
         per_page (int, optional): The number of results to return per page. Defaults to 20.
         offset (int, optional): The number of results to skip before starting to return rows. 
             Defaults to 0.
-        llm_interface (Union[LLMInterface, AsyncLLMInterface], optional): The LLM interface to use. Defaults to None.
+        llm (Union[LLMInterface, AsyncLLMInterface], optional): The LLM interface to use. Defaults to None.
     Returns:
         Optional[str]: The generated SQL query string with pagination applied, or None if the 
         query could not be generated.
     """
     # Get the LLM to parse the plaintext query into a SQL command.
     sql_query = None
-    if use_llm and llm_interface and search_query.strip():
+    if llm and search_query.strip():
         logger.info(f"Converting query to SQL: {search_query}")
         
         # Check if we're using the async interface
-        if isinstance(llm_interface, AsyncLLMInterface):
-            sql_result = await llm_interface.query_to_sql(search_query)
+        if isinstance(llm, AsyncLLMInterface):
+            sql_result = await llm.query_to_sql(search_query)
         else:
             # For backward compatibility with the sync interface
-            sql_result = llm_interface.query_to_sql(search_query)
+            sql_result = llm.query_to_sql(search_query)
             
         sql_query: str = sql_result.get("sql_query")
 
@@ -53,4 +56,12 @@ async def get_the_llm_to_parse_the_plaintext_query_into_a_sql_command(
                 sql_query = f"{sql_query} LIMIT {per_page} OFFSET {offset}"
         
         logger.info(f"Generated SQL query: {sql_query}")
-    return sql_query
+
+    if parser:
+        # Validate the SQL query using the parser
+        try:
+            parsed_query = parser.model_validate({"sql_query": sql_query})
+            return parsed_query.sql_query
+        except Exception as e:
+            logger.error(f"Error parsing SQL query: {e}")
+            return None

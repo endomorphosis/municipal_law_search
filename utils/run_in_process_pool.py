@@ -164,7 +164,7 @@ async def async_run_in_process_pool(
 
                     # Process completed futures
                     for fut in done:
-                        print(f"result: {fut}")
+                        #print(f"result: {fut}")
                         original_input = futures.pop(fut)
                         pbar.update(1)
                         output = fut.result() if fut is not None else None
