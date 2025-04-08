@@ -1,0 +1,18 @@
+# docker/docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - LOG_LEVEL=20
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ../data:/app/data
+      - ../app/config.yaml:/app/config.yaml
+    restart: unless-stopped

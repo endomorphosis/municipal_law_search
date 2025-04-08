@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Comprehensive Google-style docstrings for missing modules and functions:
+  - Added module docstrings for app modules, including logger.py
+  - Added docstrings for Pydantic models in schemas package (ErrorResponse, LawItem)
+  - Added docstrings for database connection utilities (_get_a_database_connection, _get_data_from_sql)
+  - Added docstrings for cursor and connection management in search utilities
+  - Added type variable documentation to improve type hinting clarity
+  - Added docstrings to all search-related functions with proper algorithm descriptions
+  - Added complete class documentation for UploadToHuggingFaceInParallel
+- Complete documentation for app.py with 100% docstring coverage:
+  - Detailed class docstring for the SearchFunction class explaining the search pipeline
+  - Comprehensive docstrings for all SearchFunction methods with algorithm explanations
+  - Complete API endpoint documentation for search, get_law, and SSE endpoints
+  - Added context manager method docstrings for proper resource management
+  - Documented static file serving endpoints and utility methods
+  - Added full docstrings for all helper methods including pagination calculations
+- Improved database utility docstrings:
+  - Added detailed algorithm descriptions for database operations
+  - Documented connection handling and resource cleanup
+  - Included error handling and exception documentation
+  - Added usage examples for database functions
+- Added reports to identify docstring gaps and inconsistencies:
+  - Created missing_docstrings.md with documentation gaps in the app directory
+  - Created missing_docstrings_utils.md with documentation gaps in utility modules
+
+### Fixed
+
+- Duplicate line in SearchFunction.__init__ initialization
+- Improved error handling documentation in various functions
+- Clarified return type annotations in several methods
+- Fixed inconsistent parameter types in several function signatures
+- Updated function return type hints to match actual return values
+
 ## [0.1.1] - 2025-04-05
 
 ### Added

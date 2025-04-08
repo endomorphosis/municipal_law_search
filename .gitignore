@@ -55,3 +55,8 @@ tasks/
 # configs
 configs.yaml
 private_configs.yaml
+
+# misc.
+*.tmp
+*.tmp.*
+missing_data.csv

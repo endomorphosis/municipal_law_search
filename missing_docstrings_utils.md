@@ -1,48 +1,26 @@
-# Utils Folder Missing Docstrings
+# Missing or Incomplete Docstrings in Utility Functions
 
-The following files in the utils folder lack proper docstrings or have incomplete documentation:
+## Main utils directory
+- `/app/utils/__init__.py` - Empty file, needs module docstring
 
-## Files Missing Module-Level Docstrings
-- Most utils module files lack proper module-level docstrings that explain the overall purpose of the module
+## app subdirectory
+- `/app/utils/app/_get_a_database_connection.py` - Missing function docstring
+- `/app/utils/app/_get_data_from_sql.py` - Missing function docstring for main function
+- `/app/utils/app/close_database_cursor.py` - Minimal docstring, missing Args and Returns sections
+- `/app/utils/app/get_law.py` - Empty or missing file
 
-## Missing or Incomplete Function Docstrings
-- `utils/get_hash.py` - All hash-related functions lack proper docstrings:
-  - `get_hash`
-  - `hash_string`
-  - `hash_set`
-  - `hash_list`
-  - `hash_file_path`
-  - `hash_file`
-  - `hash_file_name`
-  - `hash_file_directory`
-  - `hash_dict`
-  - `hash_bytes`
-  - `hash_tuple`
+### search subdirectory
+- `/app/utils/app/search/__init__.py` - Missing module docstring
+- `/app/utils/app/search/close_database_connection.py` - Missing function docstring
+- `/app/utils/app/search/type_vars.py` - Missing proper docstrings for type variables
+- `/app/utils/app/search/make_search_query_table_if_it_doesnt_exist.py` - Incomplete docstring, missing Args and Returns sections
 
-- `utils/run_in_parallel_with_concurrency_limiter.py` - No function docstrings found
+## common subdirectory
+- `/app/utils/common/__init__.py` - Missing module docstring
 
-## Incomplete Method Docstrings
-- `utils/get_logger.md` - Parameter documentation uses informal style with missing type annotations
-- `utils/run_in_thread_pool.py` - Missing parameter type hints and return type annotations  
-- Multiple other utils files have inconsistent docstring formatting
+## database subdirectory
+- `/app/utils/database/make_stats_table.py` - Minimal docstring, missing Args and Returns sections
+- `/app/utils/database/upload_to_hugging_face_in_parallel.py` - Class missing docstring, method `main` has minimal docstring, `upload_to_hugging_face_in_parallel` and `_setup_hugging_face_api` methods missing docstrings
 
-## Class Docstrings Issues
-- `utils/get_hash.py` - The `GetHash` class has multiple duplicate `hash` method entries in documentation
-- `utils/get_hash.py` - Several static methods have missing or inadequate docstrings
-
-## Specific Issues
-- Inconsistent use of type annotations across the utils modules
-- Missing Examples sections in many docstrings
-- Missing Returns sections in some docstrings
-- Missing Raises sections where exceptions are thrown
-
-## Recommendations
-- Add proper module-level docstrings to all utils modules
-- Complete function docstrings with Google-style format including:
-  - Parameter descriptions with types
-  - Return value descriptions with types
-  - Examples where appropriate
-  - Document exceptions that may be raised
-- Fix duplicate method entries in documentation (especially in GetHash class)
-- Use consistent parameter type annotations
-- Review modules to ensure all public functions have complete docstrings
+## llm subdirectory
+- `/app/utils/llm/__init__.py` - Missing module docstring

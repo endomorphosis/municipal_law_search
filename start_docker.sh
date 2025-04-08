@@ -1,11 +1,5 @@
 #!/bin/bash
-# Script to run the American Law application
-
-# Activate the virtual environment
-source venv/bin/activate
-
-# Set environment variables
-export PYTHONPATH=$PYTHONPATH:$(pwd)/..
+# Script to run the American Law application from a Docker container
 
 # Check if port is provided
 PORT=${1:-8000}

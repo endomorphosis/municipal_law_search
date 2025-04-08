@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>American Law Search</title>
+    <!-- External CSS libraries -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Elegant fonts as specified in the UI design document -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Poiret+One&family=Cormorant+Garamond:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/src/css/index/index.css" rel="stylesheet">
+    <link href="/src/css/disclaimer/button.css" rel="stylesheet">
+    <link href="/src/css/about/about.css" rel="stylesheet">
+    <link href="/src/css/contact/contact.css" rel="stylesheet">
+    <link href="/src/css/ourteam/ourteam.css" rel="stylesheet">
+    <link href="/src/css/menu/menu.css" rel="stylesheet">
+    <link href="/src/css/stalling/stalling.css" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container mx-auto py-8 relative">
+        <!-- Disclaimer and About Buttons -->
+        <div class="relative flex justify-end">
+            <button id="menuToggleBtn" class="px-3 py-1 hover:text-gray-500 dark:hover:text-gray-600 flex items-center" type="button">
+                <svg class="text-gray-500 w-8 h-8 group-hover:text-gray-400 dark:text-gray-300 dark:group-hover:text-gray-100"
+                    xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true"
+                    focusable="false" role="img" viewBox="0 0 32 18" preserveAspectRatio="xMidYMid meet">
+                    <path fill-rule="evenodd" clip-rule="evenodd"
+                        d="M14.4504 3.30221C14.4504 2.836 14.8284 2.45807 15.2946 2.45807H28.4933C28.9595 2.45807 29.3374 2.836 29.3374 3.30221C29.3374 3.76842 28.9595 4.14635 28.4933 4.14635H15.2946C14.8284 4.14635 14.4504 3.76842 14.4504 3.30221Z"
+                        fill="currentColor"></path>
+                    <path fill-rule="evenodd" clip-rule="evenodd"
+                        d="M14.4504 9.00002C14.4504 8.53382 14.8284 8.15588 15.2946 8.15588H28.4933C28.9595 8.15588 29.3374 8.53382 29.3374 9.00002C29.3374 9.46623 28.9595 9.84417 28.4933 9.84417H15.2946C14.8284 9.84417 14.4504 9.46623 14.4504 9.00002Z"
+                        fill="currentColor"></path>
+                    <path fill-rule="evenodd" clip-rule="evenodd"
+                        d="M14.4504 14.6978C14.4504 14.2316 14.8284 13.8537 15.2946 13.8537H28.4933C28.9595 13.8537 29.3374 14.2316 29.3374 14.6978C29.3374 15.164 28.9595 15.542 28.4933 15.542H15.2946C14.8284 15.542 14.4504 15.164 14.4504 14.6978Z"
+                        fill="currentColor"></path>
+                    <path fill-rule="evenodd" clip-rule="evenodd"
+                        d="M1.94549 6.87377C2.27514 6.54411 2.80962 6.54411 3.13928 6.87377L6.23458 9.96907L9.32988 6.87377C9.65954 6.54411 10.194 6.54411 10.5237 6.87377C10.8533 7.20343 10.8533 7.73791 10.5237 8.06756L6.23458 12.3567L1.94549 8.06756C1.61583 7.73791 1.61583 7.20343 1.94549 6.87377Z"
+                        fill="currentColor"></path>
+                </svg>
+            </button>
+            <div id="menuDropdown" class="absolute right-0 top-full mt-2 w-48 bg-white shadow-lg rounded-md hidden z-10">
+                <div class="py-1">
+                    <button id="disclaimerBtn" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Disclaimer</button>
+                    <button id="aboutBtn" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">About</button>
+                    <button id="contactBtn" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Contact</button>
+                    <button id="ourTeamBtn" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Our Team</button>
+                </div>
+            </div>
+        </div>
+
+        <header class="text-center mb-12">
+            <h1 class="logo text-4xl text-gray-800 mb-4">American Law Search</h1>
+            <p class="text-subtitle">Search through municipal and county laws from across the United States, in plain
+                English.</p>
+        </header>
+
+        <div class="max-w-3xl mx-auto">
+            <div class="search-container">
+                <input type="text" id="searchInput" class="search-input"
+                    placeholder="What laws would you like to find?">
+                <button id="searchButton" class="search-button">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
+
+            <!-- Loading indicator -->
+            <div id="loader" class="loader"></div>
+            
+            <!-- Stalling chatbot messages -->
+            <div id="stallingContainer" class="stalling-container">
+                <p id="stallingMessage" class="stalling-message">Alright, let me get to work on this.</p>
+            </div>
+
+            <div id="results" class="mt-8 space-y-6"></div>
+
+            <div id="pagination" class="pagination"></div>
+        </div>
+    </div>
+
+    <!-- Law Detail Modal -->
+    <div id="lawModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle" class="text-2xl font-bold"></h2>
+                <button id="closeModal" class="close-btn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="modalContent" class="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- Disclaimer Modal -->
+    <div id="disclaimerModal" class="disclaimer-modal">
+        <div class="disclaimer-modal-content">
+            <span class="disclaimer-close">&times;</span>
+            <iframe class="disclaimer-iframe" src="/side-menu/disclaimer.html"></iframe>
+        </div>
+    </div>
+
+    <!-- About Modal -->
+    <div id="aboutModal" class="about-modal">
+        <div class="about-modal-content">
+            <span class="about-close">&times;</span>
+            <iframe class="about-iframe" src="/side-menu/about.html"></iframe>
+        </div>
+    </div>
+
+    <!-- Contact Modal -->
+    <div id="contactModal" class="disclaimer-modal">
+        <div class="disclaimer-modal-content">
+            <span class="contact-close">&times;</span>
+            <iframe class="disclaimer-iframe" src="/side-menu/contact.html"></iframe>
+        </div>
+    </div>
+
+    <!-- Our Team Modal -->
+    <div id="ourTeamModal" class="disclaimer-modal">
+        <div class="disclaimer-modal-content">
+            <span class="ourteam-close">&times;</span>
+            <iframe class="disclaimer-iframe" src="/side-menu/ourteam.html"></iframe>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast">
+        <i id="toastIcon" class="fas"></i>
+        <div id="toastMessage"></div>
+    </div>
+
+    <!-- Custom JavaScript -->
+    <script src="/src/js/index/index.js"></script>
+    <script src="/src/js/stalling/stalling.js"></script>
+    <script src="/src/js/disclaimer/disclaimer.js"></script>
+    <script src="/src/js/about/about.js"></script>
+    <script src="/src/js/contact/contact.js"></script>
+    <script src="/src/js/ourteam/ourteam.js"></script>
+    <script src="/src/js/menu/menu.js" defer></script>
+</body>
+
+</html>

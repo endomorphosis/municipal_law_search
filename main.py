@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 
-from chatbot.api.database.create_american_law_db import create_american_law_db
-from logger import logger
-from configs import configs
+from app.api.database.create_american_law_db import create_american_law_db
+from app.logger import logger
+from app.configs import configs
 
 
 def main():
