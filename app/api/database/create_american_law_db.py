@@ -742,9 +742,9 @@ def create_american_law_db():
                     logger.info("Database is empty. Proceeding with data upload.")
 
                     make_the_html_citations_and_embeddings_databases()
-                    #remake_citations_from_american_law_db()
+                    # remake_citations_from_american_law_db()
 
-                    #make_tables_in_the_databases()
+                    # make_tables_in_the_databases()
                     # make_citations_db()
                     # make_tables_in_citations_db()
 

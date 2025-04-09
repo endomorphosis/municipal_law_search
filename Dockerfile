@@ -17,7 +17,7 @@ RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
 # Copy application files
-COPY ../app /app
+COPY app /app
 
 # Set PYTHONPATH
 ENV PYTHONPATH=/app
@@ -31,7 +31,7 @@ ENV PORT=8000 \
     LOG_LEVEL=10
 
 # Mountable directories
-VOLUME ["/app/data", "/app/config.yaml"]
+VOLUME ["/app/data", "/app/configs.yaml"]
 
 # Start application
 CMD ["bash", "start_docker.sh"]

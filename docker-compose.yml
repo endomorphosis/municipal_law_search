@@ -1,5 +1,4 @@
-# docker/docker-compose.dev.yml
-version: '3.8'
+# docker/docker-compose.yml
 
 services:
   app:
@@ -10,9 +9,10 @@ services:
       - "8000:8000"
     environment:
       - PORT=8000
-      - LOG_LEVEL=10
+      - LOG_LEVEL=20
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HUGGING_FACE_USER_ACCESS_TOKEN=${HUGGING_FACE_USER_ACCESS_TOKEN}
     volumes:
-      - ../app:/app
       - ../data:/app/data
-      - ../app/config.yaml:/app/config.yaml
+      - ../app/_configs.yaml:/app/_configs.yaml
+    restart: unless-stopped

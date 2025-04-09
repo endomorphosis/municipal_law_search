@@ -23,6 +23,7 @@ __pycache__/
 venv
 venv/
 env/
+get-docker.sh
 
 # Dependency directories
 node_modules/
@@ -30,6 +31,7 @@ node_modules/
 # Environment variables
 .env
 *.Identifier
+*.vba
 
 # Editor directories and files
 .idea
