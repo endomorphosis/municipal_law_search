@@ -10,9 +10,9 @@ import pandas as pd
 from tqdm import tqdm
 
 
-from app.configs import configs
-from app.logger import logger
-from app.utils.common.run_in_process_pool import run_in_process_pool
+fromconfigs import configs
+from logger import logger
+from utils.common.run_in_process_pool import run_in_process_pool
 from api.database.fix_parquet_files_in_parallel import fix_parquet_files_in_parallel
 
 MEMORY_LIMIT_IN_MBS = 40
@@ -481,7 +481,7 @@ import os
 from huggingface_hub import HfApi, hf_hub_download
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
-from app.utils.common.run_in_parallel_with_concurrency_limiter import run_in_parallel_with_concurrency_limiter
+from utils.common.run_in_parallel_with_concurrency_limiter import run_in_parallel_with_concurrency_limiter
 
 def upload_files_to_database(parquet_list: list[list[tuple[str, Path]]]) -> None:
     """

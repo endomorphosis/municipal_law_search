@@ -12,7 +12,8 @@ import duckdb
 from pydantic import BaseModel, Field
 
 
-from app import configs, logger
+from configs import configs 
+from logger import logger
 
 
 class _SearchQuery(BaseModel):

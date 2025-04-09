@@ -18,14 +18,18 @@ class Configs(BaseModel):
     Attributes:
         OPENAI_API_KEY (SecretStr): Authentication key for OpenAI API.
         ROOT_DIR (DirectoryPath): Root directory of the project.
-        ROOT_DIR (DirectoryPath): Directory containing the American Law project.
         AMERICAN_LAW_DATA_DIR (DirectoryPath): Directory containing the American Law data.
+        PARQUET_FILES_DIR (DirectoryPath): Directory containing parquet files.
+        AMERICAN_LAW_DB_PATH (DirectoryPath): Path to the American Law database file.
+        PROMPTS_DIR (DirectoryPath): Directory containing LLM prompt templates.
         HUGGING_FACE_REPO_ID (str): Repository ID on Hugging Face for uploading.
         OPENAI_MODEL (str): OpenAI model to use for processing.
         OPENAI_EMBEDDING_MODEL (str): OpenAI model to use for text embeddings.
         LOG_LEVEL (int): Logging level for the application (10 = DEBUG).
+        SIMILARITY_SCORE_THRESHOLD (float): Threshold for cosine similarity scoring.
     """
     OPENAI_API_KEY:                 SecretStr
+    HUGGING_FACE_USER_ACCESS_TOKEN: SecretStr = None
     ROOT_DIR:                       DirectoryPath = _ROOT_DIR
     AMERICAN_LAW_DATA_DIR:          DirectoryPath = _ROOT_DIR / "data"
     PARQUET_FILES_DIR:              DirectoryPath = _ROOT_DIR / "data" / "parquet_files"

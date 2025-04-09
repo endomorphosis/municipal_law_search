@@ -5,8 +5,9 @@ from pydantic import BaseModel
 import yaml
 
 
-from app import configs, Configs, logger
-from app.utils.common import safe_format
+from configs import configs
+from logger import logger
+from utils.common import safe_format
 
 
 class PromptFields(BaseModel):

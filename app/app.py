@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from datetime import datetime
+from dotenv import load_dotenv
 import functools
 import json
-from dotenv import load_dotenv
 import os
+from pathlib import Path
 import sqlite3
 import traceback
 from typing import Any, AsyncGenerator, Callable, Coroutine, Never, TypeVar, Union
@@ -22,32 +23,33 @@ from pydantic import BaseModel, PositiveInt
 from sse_starlette.sse import EventSourceResponse
 
 
-from app.configs import configs, Configs
-from app.logger import logger
+from configs import configs, Configs
+from logger import logger
 
-from app.api.llm.async_interface import AsyncLLMInterface
-from app.schemas.search_response import SearchResponse
-from app.schemas.law_item import LawItem
-from app.schemas.error_response import ErrorResponse
+from api.llm.async_interface import AsyncLLMInterface
+from schemas.search_response import SearchResponse
+from schemas.law_item import LawItem
+from schemas.error_response import ErrorResponse
 
-from app.utils.app.search.format_initial_sql_return_from_search import format_initial_sql_return_from_search
-from app.utils.app.search.get_embedding_cids_for_all_the_cids import get_embedding_cids_for_all_the_cids
-from app.utils.app.search.turn_english_into_sql import (
+from utils.app.search.format_initial_sql_return_from_search import format_initial_sql_return_from_search
+from utils.app.search.get_embedding_cids_for_all_the_cids import get_embedding_cids_for_all_the_cids
+from utils.app.search.turn_english_into_sql import (
     turn_english_into_sql
 )
-from app.utils.app.search.get_embedding_and_calculate_cosine_similarity import (
+from utils.app.search.get_embedding_and_calculate_cosine_similarity import (
     get_embedding_and_calculate_cosine_similarity
 )
-from app.utils.app.search.make_search_query_table_if_it_doesnt_exist import (
+from utils.app.search.make_search_query_table_if_it_doesnt_exist import (
     make_search_query_table_if_it_doesnt_exist
 )
-from app.utils.database.get_db import get_html_db
-from app.utils.common import get_cid
-from app.utils.common.run_in_process_pool import async_run_in_process_pool
-from app.utils.app import get_html_for_this_citation, get_a_database_connection
+from utils.database.get_db import get_html_db
+from utils.common import get_cid
+from utils.common.run_in_process_pool import async_run_in_process_pool
+from utils.app.get_html_for_this_citation import get_html_for_this_citation
+from utils.app._get_a_database_connection import get_a_database_connection
 
 
-from app.utils.app.search import (
+from utils.app.search import (
     close_database_cursor,
     close_database_connection,
     estimate_the_total_count_without_pagination,
@@ -68,6 +70,7 @@ SqlCursor = TypeVar('SqlCursor', duckdb.DuckDBPyConnection, sqlite3.Cursor)
 SqlConnection = TypeVar('SqlCursor', duckdb.DuckDBPyConnection, sqlite3.Connection)
 LLM = TypeVar('LLM')
 
+THIS_FILE = os.path.abspath(__file__)
 
 # Set up the FastAPI app
 app = FastAPI(title="American Law API", description="API for accessing American law database")
@@ -102,7 +105,7 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 # Serve favicon
-favicon_path = configs.ROOT_DIR / 'frontend' / 'static'/ 'images' / 'favicon.ico'
+favicon_path = Path(THIS_FILE).parent / 'frontend' / 'static'/ 'images' / 'favicon' / 'favicon.ico'
 
 @app.get('/favicon.ico', include_in_schema=False)
 async def favicon():
@@ -253,36 +256,6 @@ async def search_sse_response(
 
 
 
-resources = {
-    'async_run_in_process_pool': async_run_in_process_pool,
-    'close_database_connection': close_database_connection,
-    'close_database_cursor': close_database_cursor,
-    'determine_user_intent': llm.determine_user_intent,
-    'estimate_the_total_count_without_pagination': estimate_the_total_count_without_pagination,
-    'format_initial_sql_return_from_search': format_initial_sql_return_from_search,
-    'get_a_database_connection': get_a_database_connection,
-    'get_cached_query_results': get_cached_query_results,
-    'get_cid': get_cid,
-    'get_data_from_sql': get_data_from_sql,
-    'get_database_cursor': get_database_cursor,
-    'get_embedding_and_calculate_cosine_similarity': get_embedding_and_calculate_cosine_similarity,
-    'get_embedding_cids_for_all_the_cids': get_embedding_cids_for_all_the_cids,
-    'get_html_for_this_citation': get_html_for_this_citation,
-    'get_single_embedding': llm.openai_client.get_single_embedding,
-    'LLMSqlOutput': LLMSqlOutput,
-    'make_search_query_table_if_it_doesnt_exist': make_search_query_table_if_it_doesnt_exist,
-    'sort_and_save_search_query_results': sort_and_save_search_query_results,
-    'turn_english_into_sql': turn_english_into_sql
-}
-
-
-# NOTE We need to do this to get around pickling errors.
-async def run_async_func_in_process_pool(func: Callable, embedding_id_list: list[tuple[str, str]], pull_list: list) -> list:
-    async for _, embedding_id in async_run_in_process_pool(func, embedding_id_list):
-        if embedding_id is not None:
-            pull_list.append(embedding_id)
-    return pull_list
-
 
 class SearchFunction:
     """
@@ -362,29 +335,30 @@ class SearchFunction:
 
         # Get the classes functions.
         ## Sync
-        self._make_search_query_table_if_it_doesnt_exist:    Callable  = self.resources['make_search_query_table_if_it_doesnt_exist']
-        self._get_a_database_connection:                     Callable  = self.resources['get_a_database_connection']
-        self._get_database_cursor:                           Callable  = self.resources['get_database_cursor']
-        self._get_data_from_sql:                             Callable  = self.resources['get_data_from_sql']
-        self._get_cached_query_results:                      Callable  = self.resources['get_cached_query_results']
-        self._get_cid:                                       Callable  = self.resources['get_cid']
-        self._get_html_for_this_citation:                    Callable  = self.resources['get_html_for_this_citation']
-        self._sort_and_save_search_query_results:            Callable  = self.resources['sort_and_save_search_query_results']
-        self._format_initial_sql_return_from_search:         Callable  = self.resources['format_initial_sql_return_from_search']
-        self._estimate_the_total_count_without_pagination:   Callable  = self.resources['estimate_the_total_count_without_pagination']
-        self._close_database_connection:                     Callable  = self.resources['close_database_connection']
-        self._close_database_cursor:                         Callable  = self.resources['close_database_cursor']
-        self._get_embedding_and_calculate_cosine_similarity: Callable  = self.resources['get_embedding_and_calculate_cosine_similarity']
+        self._make_search_query_table_if_it_doesnt_exist:    Callable = self.resources['make_search_query_table_if_it_doesnt_exist']
+        self._get_a_database_connection:                     Callable = self.resources['get_a_database_connection']
+        self._get_database_cursor:                           Callable = self.resources['get_database_cursor']
+        self._get_data_from_sql:                             Callable = self.resources['get_data_from_sql']
+        self._get_cached_query_results:                      Callable = self.resources['get_cached_query_results']
+        self._get_cid:                                       Callable = self.resources['get_cid']
+        self._get_html_for_this_citation:                    Callable = self.resources['get_html_for_this_citation']
+        self._sort_and_save_search_query_results:            Callable = self.resources['sort_and_save_search_query_results']
+        self._format_initial_sql_return_from_search:         Callable = self.resources['format_initial_sql_return_from_search']
+        self._estimate_the_total_count_without_pagination:   Callable = self.resources['estimate_the_total_count_without_pagination']
+        self._close_database_connection:                     Callable = self.resources['close_database_connection']
+        self._close_database_cursor:                         Callable = self.resources['close_database_cursor']
+        self._get_embedding_and_calculate_cosine_similarity: Callable = self.resources['get_embedding_and_calculate_cosine_similarity']
         # Async
-        self._async_run_in_process_pool:                     Coroutine  = self.resources['async_run_in_process_pool']
-        self._get_single_embedding:                          Coroutine  = self.resources['get_single_embedding']
-        self._turn_english_into_sql:                         Coroutine  = self.resources['turn_english_into_sql']
-        self._determine_user_intent:                         Coroutine  = self.resources['determine_user_intent']
+        self._async_run_in_process_pool:                     Coroutine = self.resources['async_run_in_process_pool']
+        self._get_single_embedding:                          Coroutine = self.resources['get_single_embedding']
+        self._turn_english_into_sql:                         Coroutine = self.resources['turn_english_into_sql']
+        self._determine_user_intent:                         Coroutine = self.resources['determine_user_intent']
         # Schemas
         self._LLMSqlOutput:                                  BaseModel  = self.resources['LLMSqlOutput'] 
 
         # Run these start up functions
         self._make_search_query_table_if_it_doesnt_exist()
+
         self.class_connection: SqlConnection = self._get_a_database_connection()
         self.class_cursor: SqlCursor         = self._get_database_cursor(self.class_connection)
         
@@ -568,12 +542,12 @@ class SearchFunction:
         for embedding_id_list in get_embedding_cids_for_all_the_cids(initial_results):
             pull_list = []
 
-            func: Callable = functools.partial(
+            embedding_func: Callable = functools.partial(
                 get_embedding_and_calculate_cosine_similarity,
                 query_embedding=self.search_query_embedding,
             )
 
-            pull_list = await run_async_func_in_process_pool(func, embedding_id_list, pull_list)
+            pull_list: list[tuple[str, float]] = await get_embeddings_in_parallel_using_process_pool(embedding_func, embedding_id_list, pull_list)
 
             # Order the pull list by their cosine similarity score.
             pull_list = sorted(pull_list, key=lambda x: x[1], reverse=True)
@@ -868,7 +842,11 @@ class SearchFunction:
             yield cached_results
             return # Return to prevent a full embedding search.
 
-        await self.figure_out_what_the_user_wants(self.search_query)
+        try:
+            await self.figure_out_what_the_user_wants(self.search_query)
+        except Exception as e:
+            # If the user intent is not a search, we want to tell the user to try again.
+            logger.error(f"Error determining user intent: {e}")
 
         sql_query = await self.turn_english_into_sql(page, per_page)
 
@@ -896,6 +874,37 @@ class SearchFunction:
             'per_page': per_page,
             'total_pages': self._calc_total_pages(self.total, per_page)
         }
+
+
+resources = {
+    'async_run_in_process_pool': async_run_in_process_pool,
+    'close_database_connection': close_database_connection,
+    'close_database_cursor': close_database_cursor,
+    'determine_user_intent': llm.determine_user_intent,
+    'estimate_the_total_count_without_pagination': estimate_the_total_count_without_pagination,
+    'format_initial_sql_return_from_search': format_initial_sql_return_from_search,
+    'get_a_database_connection': get_a_database_connection,
+    'get_cached_query_results': get_cached_query_results,
+    'get_cid': get_cid,
+    'get_data_from_sql': get_data_from_sql,
+    'get_database_cursor': get_database_cursor,
+    'get_embedding_and_calculate_cosine_similarity': get_embedding_and_calculate_cosine_similarity,
+    'get_embedding_cids_for_all_the_cids': get_embedding_cids_for_all_the_cids,
+    'get_html_for_this_citation': get_html_for_this_citation,
+    'get_single_embedding': llm.openai_client.get_single_embedding,
+    'LLMSqlOutput': LLMSqlOutput,
+    'make_search_query_table_if_it_doesnt_exist': make_search_query_table_if_it_doesnt_exist,
+    'sort_and_save_search_query_results': sort_and_save_search_query_results,
+    'turn_english_into_sql': turn_english_into_sql
+}
+
+
+# NOTE We need to do this to get around pickling errors.
+async def get_embeddings_in_parallel_using_process_pool(func: Callable, embedding_id_list: list[tuple[str, str]], pull_list: list) -> list:
+    async for _, embedding_id in async_run_in_process_pool(func, embedding_id_list):
+        if embedding_id is not None:
+            pull_list.append(embedding_id)
+    return pull_list
 
 
 async def _search(
@@ -1003,4 +1012,4 @@ async def get_law(cid: str) -> dict:
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run("app.app:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)

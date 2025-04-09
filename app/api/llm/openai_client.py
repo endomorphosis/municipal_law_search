@@ -13,10 +13,10 @@ from pydantic import AfterValidator as AV, BaseModel, BeforeValidator as BV, com
 import tiktoken
 
 
-from app.logger import logger
-from app.configs import configs, Configs
-from app.utils.app import clean_html
-from app.utils.llm.load_prompt_from_yaml import load_prompt_from_yaml, Prompt
+from logger import logger
+from configs import configs, Configs
+from utils.app import clean_html
+from utils.llm.load_prompt_from_yaml import load_prompt_from_yaml, Prompt
 
 
 # From: https://platform.openai.com/docs/pricing

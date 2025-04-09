@@ -11,6 +11,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from pydantic import BaseModel
 
 from app import configs, Configs, logger
+from configs import configs, Configs
+from logger import logger
 from .openai_client import OpenAIClient, LLMInput, LLMOutput
 from .embeddings_utils import EmbeddingsManager
 

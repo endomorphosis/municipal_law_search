@@ -26,12 +26,12 @@ from pydantic import (
 import tiktoken
 
 
-from app.configs import configs, Configs
-from app.logger import logger
-from app.utils.app import clean_html
-from app.utils.common import safe_format
-from app.utils.llm.cosine_similarity import cosine_similarity
-from app.utils.llm.load_prompt_from_yaml import load_prompt_from_yaml, Prompt
+from configs import configs, Configs
+from logger import logger
+from utils.app import clean_html
+from utils.common import safe_format
+from utils.llm.cosine_similarity import cosine_similarity
+from utils.llm.load_prompt_from_yaml import load_prompt_from_yaml, Prompt
 
 
 # From: https://platform.openai.com/docs/pricing

@@ -7,7 +7,7 @@ import sqlite3
 import duckdb
 
 
-from app.configs import configs
+from configs import configs
 
 
 def setup_citation_db(db_path: Path = None, use_duckdb: bool = True) -> sqlite3.Connection | duckdb.DuckDBPyConnection:

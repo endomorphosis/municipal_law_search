@@ -8,10 +8,10 @@ from typing import Callable, Optional
 import pandas as pd
 
 
-from app.configs import configs
-from app.logger import logger
-from app.utils.common.run_in_process_pool import run_in_process_pool
-from app.utils.common import get_cid
+from configs import configs
+from logger import logger
+from utils.common.run_in_process_pool import run_in_process_pool
+from utils.common import get_cid
 
 
 def _get_rid_of_index_level_0_columns(df: pd.DataFrame) -> pd.DataFrame:

@@ -1,5 +1,5 @@
-from app.configs import configs, Configs
-from app.logger import logger
+from .configs import configs, Configs
+from .logger import logger
 
 
 __all__ = [

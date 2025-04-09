@@ -6,8 +6,8 @@ import duckdb
 import tqdm
 
 
-from app.logger import logger
-from app.utils.database.get_db import get_embeddings_db
+from logger import logger
+from utils.database.get_db import get_embeddings_db
 
 
 def get_embedding_cids_for_all_the_cids(

@@ -19,10 +19,10 @@ import tiktoken
 import yaml
 
 
-from app.logger import logger
-from app.configs import configs, Configs
-from app.utils.app import clean_html
-from app.utils.common import safe_format
+from logger import logger
+from configs import configs, Configs
+from utils.app import clean_html
+from utils.common import safe_format
 
 
 TEST_QUERY_1 = """

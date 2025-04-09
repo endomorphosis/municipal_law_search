@@ -1,9 +1,12 @@
+from typing import Any
 
 
 import duckdb
-from typing import Any
-from app import configs, logger
-from app.schemas.search_response import SearchResponse
+
+
+from configs import configs 
+from logger import logger
+from schemas.search_response import SearchResponse
 from .format_initial_sql_return_from_search import format_initial_sql_return_from_search
 
 

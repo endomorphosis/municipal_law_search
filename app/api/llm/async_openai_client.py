@@ -15,20 +15,21 @@ from pydantic import (
     BaseModel, 
     BeforeValidator as BV, 
     computed_field, 
+    FilePath,
     PrivateAttr, 
-    ValidationError
+    ValidationError,
 )
 import tiktoken
 import yaml
 
 
-from app.api.llm.constants import MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS
-from app.configs import configs, Configs
-from app.logger import logger
+from api.llm.constants import MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS
+from configs import configs, Configs
+from logger import logger
 
-from app.utils.app import clean_html
-from app.utils.common import safe_format
-from app.utils.llm.cosine_similarity import cosine_similarity 
+from utils.app import clean_html
+from utils.common import safe_format
+from utils.llm.cosine_similarity import cosine_similarity 
 
 
 def validate_prompt(prompt: str) -> Never:
@@ -109,6 +110,58 @@ def calculate_cost(prompt: str, data: str, out: str, model: str) -> Optional[int
 
 
 
+class SqlDatabase(BaseModel):
+    """
+    Class to handle SQL database operations.
+    """
+    db_path: FilePath
+
+    _conn: duckdb.DuckDBPyConnection = PrivateAttr(default=None)
+    _query: str = PrivateAttr(default="")
+
+    def __enter__(self) -> 'SqlDatabase':
+        self.connect()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self._conn:
+            self._conn.close()
+        self._conn = None
+        return
+
+    def connect(self) -> None:
+        if self._conn is None:
+            self._conn = duckdb.connect(self.db_path, read_only=True)
+
+    def execute_query(self, 
+                      query: str, 
+                      return_as: Optional[str] = None
+                      ) -> Optional[pd.DataFrame | List[Dict[str, Any]]] | List[tuple[Any, ...]]:
+        if self._conn:
+            with self._conn.cursor() as cursor:
+                try:
+                    cursor.execute(query)
+                    if return_as is None:
+                        self._conn.commit()
+                except Exception as e:
+                    logger.error(f"Error executing query: {e}")
+                    if return_as is None:
+                        self._conn.rollback()
+
+                match return_as:
+                    case "df":
+                        return cursor.fetchdf()
+                    case "dict":
+                        return cursor.fetchdf().to_dict('records')
+                    case "tuple":
+                        return cursor.fetchall()
+                    case _: # This route is for database alterations like CREATE TABLE
+                        return
+
+    def close(self):
+        if self._conn:
+            self._conn.close()
+
 
 class AsyncLLMInput(BaseModel):
     client: Any
@@ -119,13 +172,24 @@ class AsyncLLMInput(BaseModel):
     temperature: float = 0 # Deterministic output
     response_parser: Callable = lambda x: x # This should be a partial function.
     formatting: Optional[str] = None
+    db_path: Optional[FilePath] = None
+
 
     _configs: Configs = PrivateAttr(default=configs)
 
+
     async def get_response(self) -> Optional[Any]:
         if self.use_rag:
-            # Get an embedding of user_message (for future implementation)
-            self.user_message = self._use_rag()
+            # Get an embedding of user_message
+            user_message_embedding = await self._get_embedding(self.user_message)
+            with SqlDatabase(db_path=self.db_path) as db:
+                # Use RAG to find relevant documents
+                context = await self._use_rag(user_message_embedding, self.system_prompt)
+                if context:
+                    self.user_message = context[0]
+                    self.system_prompt = context[1]
+                else:
+                    return "No relevant documents found."
 
         try:
             _response = await self.client.chat.completions.create(
@@ -153,16 +217,22 @@ class AsyncLLMInput(BaseModel):
         else:
             return "No response generated. Please try again."
 
-    async def _get_embedding(self) -> List[float]:
+    async def _get_embedding(self, message: str) -> List[float]:
         """
-        Generate an embedding of the user's message.
+        Generate an embedding of the input message.
+
+        Args:
+            message: Message to generate an embedding for
         
         Returns:
             Embedding vector
         """
+        # Strip the user message to remove newlines and leading/trailing whitespace
+        message = message.strip('\n').strip()
+
         try:
             response = await self.client.embeddings.create(
-                input=self.user_message,
+                input=message,
                 model=self._configs.OPENAI_EMBEDDING_MODEL
             )
         except Exception as e:
@@ -183,7 +253,7 @@ class AsyncLLMInput(BaseModel):
             user_message: The user's message
             system_message: The system prompt
         """
-        user_message = user_message.strip('\n').strip()
+        
 
 
 class AsyncLLMOutput(BaseModel):
@@ -264,16 +334,19 @@ class AsyncOpenAIClient:
         if not self.api_key:
             raise ValueError("OpenAI API key must be provided either as an argument or in the OPENAI_API_KEY environment variable")
         
-        self.client = AsyncOpenAI(api_key=self.api_key)
-        self.model: str = model
-        self.embedding_model: str = embedding_model
+        # Define model parameters
+        self.model:                str = model
+        self.embedding_model:      str = embedding_model
         self.embedding_dimensions: int = embedding_dimensions
-        self.temperature: float = temperature
-        self.max_tokens: int = max_tokens
+        self.temperature:          float = temperature
+        self.max_tokens:           int = max_tokens
         
+        # Start the async client
+        self.client:               AsyncOpenAI = AsyncOpenAI(api_key=self.api_key)
+
         # Set data paths
         self.data_path: Path = configs.AMERICAN_LAW_DATA_DIR
-        self.db_path: Path = configs.AMERICAN_LAW_DB_PATH
+        self.db_path:   Path = configs.AMERICAN_LAW_DB_PATH
 
         logger.info(f"Initialized AsyncOpenAI client: LLM model: {model}, embedding model: {embedding_model}")
 

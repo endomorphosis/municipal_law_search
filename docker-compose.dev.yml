@@ -13,6 +13,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - HUGGING_FACE_USER_ACCESS_TOKEN=${HUGGING_FACE_USER_ACCESS_TOKEN}
     volumes:
-      - ../app:/app
-      - ../data:/app/data
-      - ../app/configs.yaml:/app/configs.yaml
+      - ./app:/app
+      - ./data:/data
+      - ./app/configs.yaml:/app/configs.yaml
+      - ./frontend:/frontend

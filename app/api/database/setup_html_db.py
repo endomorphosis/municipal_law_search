@@ -4,7 +4,7 @@ import duckdb
 from typing import Union, Any
 
 
-from app.configs import configs
+from configs import configs
 
 
 def setup_html_db(db_path=None, use_duckdb=True) -> Union[sqlite3.Connection, duckdb.DuckDBPyConnection]:

@@ -4,10 +4,10 @@ Utility module for safely closing database cursors.
 This module provides a function to safely close a database cursor,
 with appropriate logging, to prevent resource leaks.
 """
-from app.utils.app.search.type_vars import SqlCursor
+from utils.app.search.type_vars import SqlCursor
 
 
-from app import logger
+from logger import logger
 
 
 def close_database_cursor(cursor: SqlCursor) -> None:

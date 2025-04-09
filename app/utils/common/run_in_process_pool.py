@@ -1,12 +1,14 @@
 import asyncio
-import concurrent.futures
+import concurrent.futures as cf
 import itertools
 from typing import Any, AsyncGenerator, Callable, Container, Coroutine, Generator, Optional
 
 
 import psutil
 import tqdm
-from app import logger
+
+
+from logger import logger
 
 
 def run_in_process_pool(
@@ -62,7 +64,7 @@ def run_in_process_pool(
 
     try:
         with tqdm.tqdm(total=len(inputs)) as pbar:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            with cf.ProcessPoolExecutor(max_workers=max_workers) as executor:
 
                 # Submit the initial batch of futures.
                 futures = {
@@ -71,8 +73,8 @@ def run_in_process_pool(
                 }
 
                 while futures:
-                    done, _ = concurrent.futures.wait(
-                        futures, return_when=concurrent.futures.FIRST_COMPLETED
+                    done, _ = cf.wait(
+                        futures, return_when=cf.FIRST_COMPLETED
                     )
 
                     # Yield the results of the completed futures.
@@ -104,7 +106,7 @@ async def async_run_in_process_pool(
     This is the asynchronous version of run_in_process_pool that integrates with asyncio.
     It processes a collection of inputs by applying the provided function to each input
     using a process pool, but allows other asynchronous operations to continue while
-    waiting for results by not blocking the event loop.
+    waiting for results. This allows for CPU-bound processes to run without blocking the main event loop.
     
     Args:
         func (Callable | Coroutine): A function or coroutine that takes a single input argument.
@@ -145,7 +147,7 @@ async def async_run_in_process_pool(
 
     try:
         with tqdm.tqdm(total=len(inputs)) as pbar:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            with cf.ProcessPoolExecutor(max_workers=max_workers) as executor:
                 # Submit the initial batch of futures
                 futures = {
                     asyncio.wrap_future(

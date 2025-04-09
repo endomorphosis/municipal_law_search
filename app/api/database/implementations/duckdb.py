@@ -4,8 +4,8 @@ from typing import List, Dict, Any
 import duckdb
 
 
-from app.configs import Configs
-from app.logger import logger
+from configs import Configs
+from logger import logger
 
 
 class DuckDbClient:

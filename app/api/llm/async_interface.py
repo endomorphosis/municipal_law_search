@@ -11,8 +11,8 @@ from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 
 
-from app.configs import configs, Configs
-from app.logger import logger
+from app import configs, Configs
+from app import logger
 from .async_openai_client import AsyncOpenAIClient, AsyncLLMInput, AsyncLLMOutput
 from .embeddings_utils import EmbeddingsManager
 

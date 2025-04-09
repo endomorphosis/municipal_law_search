@@ -5,8 +5,9 @@ import duckdb
 import numpy as np
 
 
-from app import configs, logger
-from app.utils.llm.cosine_similarity import cosine_similarity
+from configs import configs
+from logger import logger
+from utils.llm.cosine_similarity import cosine_similarity
 
 
 def get_embedding_and_calculate_cosine_similarity(

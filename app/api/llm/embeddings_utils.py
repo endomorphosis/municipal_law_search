@@ -11,8 +11,8 @@ import sqlite3
 
 
 # Set up logging
-from app.configs import Configs
-from app.logger import logger
+from configs import Configs
+from logger import logger
 
 
 class EmbeddingsManager:

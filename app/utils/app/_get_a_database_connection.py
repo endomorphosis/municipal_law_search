@@ -4,12 +4,13 @@ Utility module for creating database connections to the American law database.
 This module provides a simple interface for obtaining a database cursor,
 with appropriate error handling for use in FastAPI routes.
 """
+import duckdb
 from fastapi import HTTPException
 
 
-from app import logger
-from app.utils.database.get_db import get_american_law_db
-from app.utils.app.search.type_vars import SqlCursor
+from configs import configs
+from logger import logger
+from utils.app.search.type_vars import SqlCursor
 
 
 def get_a_database_connection() -> SqlCursor:
@@ -46,7 +47,7 @@ def get_a_database_connection() -> SqlCursor:
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
         ```
     """
-    db_conn = get_american_law_db()
+    db_conn = duckdb.connect(configs.AMERICAN_LAW_DB_PATH, read_only=True)
     if db_conn is None:
         logger.error("Failed to get a database connection")
         raise HTTPException(status_code=500, detail="Database connection failed")
