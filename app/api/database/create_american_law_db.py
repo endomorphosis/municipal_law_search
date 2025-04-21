@@ -10,7 +10,7 @@ import pandas as pd
 from tqdm import tqdm
 
 
-fromconfigs import configs
+from configs import configs
 from logger import logger
 from utils.common.run_in_process_pool import run_in_process_pool
 from api.database.fix_parquet_files_in_parallel import fix_parquet_files_in_parallel
