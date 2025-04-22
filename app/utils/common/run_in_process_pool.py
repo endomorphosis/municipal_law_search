@@ -18,12 +18,12 @@ def run_in_process_pool(
         ) -> Generator[None, None, tuple[Any, Optional[Any]]]:
     """
     Execute a function across multiple inputs in parallel using separate processes.
-    
+
     This function processes a collection of inputs by applying the provided function
     to each input using a process pool for parallel execution. It yields results as
     they complete rather than waiting for all to finish. This is ideal for CPU-bound
     operations that benefit from true parallel execution.
-    
+
     Args:
         func (Callable): A function that takes a single input argument. This function
             will be called once for each item in the inputs collection.
@@ -31,25 +31,25 @@ def run_in_process_pool(
             be passed individually to the function.
         max_concurrency (Optional[int], optional): Maximum number of concurrent processes.
             If None, defaults to (CPU cores - 1). Defaults to None.
-            
+
     Returns:
         Generator[None, None, tuple[Any, Optional[Any]]]: A generator that yields
             (input, output) pairs as the function calls complete, where:
             - input: The original input value passed to the function
             - output: The return value from calling func(input)
-            
+
     Note:
         - Results are yielded in the order they complete, not in the order of inputs
         - Progress is displayed using tqdm
         - This function properly cleans up resources even if exceptions occur
         - Multiprocessing has overhead, so this is best for compute-intensive tasks
-    
+
     Example:
         >>> def complex_calculation(x):
         ...     return x ** 3
         >>> for input_val, result in run_in_process_pool(complex_calculation, range(10)):
         ...     print(f"{input_val}³ = {result}")
-    
+
     See https://alexwlchan.net/2019/10/adventures-with-concurrent-futures/ for an explanation
     of how this function works.
     """
@@ -102,12 +102,12 @@ async def async_run_in_process_pool(
         ) -> AsyncGenerator[None, tuple[Any, Optional[Any]]]:
     """
     Asynchronously execute a function across multiple inputs using separate processes.
-    
+
     This is the asynchronous version of run_in_process_pool that integrates with asyncio.
     It processes a collection of inputs by applying the provided function to each input
     using a process pool, but allows other asynchronous operations to continue while
     waiting for results. This allows for CPU-bound processes to run without blocking the main event loop.
-    
+
     Args:
         func (Callable | Coroutine): A function or coroutine that takes a single input argument.
             This function will be called once for each item in the inputs collection.
@@ -115,13 +115,13 @@ async def async_run_in_process_pool(
             be passed individually to the function.
         max_concurrency (Optional[int], optional): Maximum number of concurrent processes.
             If None, defaults to (CPU cores - 1). Defaults to None.
-            
+
     Returns:
         AsyncGenerator[None, tuple[Any, Optional[Any]]]: An async generator that yields
             (input, output) pairs as the function calls complete, where:
             - input: The original input value passed to the function
             - output: The return value from calling func(input)
-            
+
     Note:
         - Results are yielded in the order they complete, not in the order of inputs
         - Progress is displayed using tqdm
@@ -129,7 +129,7 @@ async def async_run_in_process_pool(
         - The event loop remains responsive to other tasks while processing
         - Proper resource cleanup occurs even if exceptions are raised
         - Use 'async for' to iterate over the results
-    
+
     Example:
         >>> async def process_data():
         ...     async def complex_calculation(x):

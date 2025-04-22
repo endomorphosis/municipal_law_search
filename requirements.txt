@@ -39,3 +39,4 @@ multiformats
 requests
 tiktoken
 sse-starlette
+torch

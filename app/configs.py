@@ -1,11 +1,29 @@
 from pathlib import Path
 
 
-from pydantic import BaseModel, SecretStr, DirectoryPath, ValidationError
+import torch
+from pydantic import (
+    BaseModel, 
+    computed_field, 
+    DirectoryPath, 
+    Field, 
+    SecretStr, 
+    ValidationError
+)
 import yaml
 
 
 _ROOT_DIR = Path(__file__).parent.parent
+
+
+def _USE_GPU_FOR_COSINE_SIMILARITY() -> str:
+    """
+    Determines if GPU is available for cosine similarity calculations.
+
+    Returns:
+        str: "cuda" if GPU is available, "cpu" otherwise.
+    """
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class Configs(BaseModel):
@@ -40,6 +58,17 @@ class Configs(BaseModel):
     OPENAI_EMBEDDING_MODEL:         str = "text-embedding-3-small"
     LOG_LEVEL:                      int = 10
     SIMILARITY_SCORE_THRESHOLD:     float = 0.3
+
+    @computed_field # type: ignore[prop-decorator]
+    @property
+    def USE_GPU_FOR_COSINE_SIMILARITY(self) -> str:
+        """
+        Determines if GPU is available for cosine similarity calculations.
+
+        Returns:
+            bool: True if GPU is available, False otherwise.
+        """
+        return _USE_GPU_FOR_COSINE_SIMILARITY()
 
 # Load the configs from the yaml and create an instance of the Configs class
 with open(_ROOT_DIR / 'app' / "configs.yaml", "r") as config_file:
