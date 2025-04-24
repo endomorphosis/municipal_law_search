@@ -15,6 +15,5 @@ services:
       - HUGGING_FACE_USER_ACCESS_TOKEN=${HUGGING_FACE_USER_ACCESS_TOKEN}
     volumes:
       - ./data:/data
-      - ./app/configs.yaml:/app/configs.yaml
       - ./frontend:/frontend
     restart: unless-stopped

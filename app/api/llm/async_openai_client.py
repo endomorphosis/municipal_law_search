@@ -110,7 +110,7 @@ def calculate_cost(prompt: str, data: str, out: str, model: str) -> Optional[int
 
 
 
-class SqlDatabase(BaseModel):
+class DuckDbSqlDatabase(BaseModel):
     """
     Class to handle SQL database operations.
     """
@@ -119,7 +119,7 @@ class SqlDatabase(BaseModel):
     _conn: duckdb.DuckDBPyConnection = PrivateAttr(default=None)
     _query: str = PrivateAttr(default="")
 
-    def __enter__(self) -> 'SqlDatabase':
+    def __enter__(self) -> 'DuckDbSqlDatabase':
         self.connect()
         return self
     
@@ -182,7 +182,7 @@ class AsyncLLMInput(BaseModel):
         if self.use_rag:
             # Get an embedding of user_message
             user_message_embedding = await self._get_embedding(self.user_message)
-            with SqlDatabase(db_path=self.db_path) as db:
+            with DuckDbSqlDatabase(db_path=self.db_path) as db:
                 # Use RAG to find relevant documents
                 context = await self._use_rag(user_message_embedding, self.system_prompt)
                 if context:

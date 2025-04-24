@@ -31,7 +31,7 @@ ENV PORT=8000 \
     LOG_LEVEL=10
 
 # Mountable directories
-VOLUME ["/app/data", "/app/configs.yaml"]
+VOLUME ["/app/data", "/app/frontend"]
 
 # Start application
 CMD ["bash", "start_docker.sh"]
