@@ -31,8 +31,9 @@ node_modules/
 
 # Environment variables
 .env
-*.Identifier
-*.vba
+configs.yaml
+private_configs.yaml
+
 
 # Editor directories and files
 .idea
@@ -56,10 +57,15 @@ tasks/
 *.parquet
 
 # configs
-configs.yaml
-private_configs.yaml
+
 
 # misc.
 *.tmp
 *.tmp.*
 missing_data.csv
+*.Identifier
+*.vba
+
+# testing
+*.test
+.pytest_cache/
