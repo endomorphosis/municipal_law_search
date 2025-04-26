@@ -22,10 +22,7 @@ def setup_html_db(db_path=None, use_duckdb=True) -> Union[sqlite3.Connection, du
     db_path = db_path or configs.AMERICAN_LAW_DATA_DIR / "american_law.db"
     
     # Use DuckDB if requested, otherwise fallback to SQLite
-    if use_duckdb:
-        return _setup_html_db_duckdb(db_path)
-    else:
-        return _setup_html_db_sqlite(db_path)
+    return _setup_html_db_duckdb(db_path) if use_duckdb else _setup_html_db_sqlite(db_path)
 
 
 def _setup_html_db_sqlite(db_path: str) -> sqlite3.Connection:
@@ -75,7 +72,7 @@ def _setup_html_db_duckdb(db_path: str) -> duckdb.DuckDBPyConnection:
     conn = duckdb.connect(db_path)
     
     try:
-        # Check if table exists
+        # Check if html table exists
         result = conn.execute('''
         SELECT name FROM sqlite_master WHERE type='table' AND name='html'
         ''').fetchone()

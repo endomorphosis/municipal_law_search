@@ -1,0 +1,22 @@
+CREATE TABLE citations (
+    id INTEGER PRIMARY KEY,
+    bluebook_cid VARCHAR NOT NULL,
+    cid VARCHAR NOT NULL,
+    title VARCHAR NOT NULL,
+    title_num VARCHAR,
+    date VARCHAR,
+    public_law_num VARCHAR,
+    chapter VARCHAR,
+    chapter_num VARCHAR,
+    history_note VARCHAR,
+    ordinance VARCHAR,
+    section VARCHAR,
+    enacted VARCHAR,
+    year VARCHAR,
+    place_name VARCHAR NOT NULL,
+    state_name VARCHAR NOT NULL,
+    state_code VARCHAR NOT NULL,
+    bluebook_state_code VARCHAR NOT NULL,
+    bluebook_citation VARCHAR NOT NULL,
+    index_level_0 INTEGER
+);

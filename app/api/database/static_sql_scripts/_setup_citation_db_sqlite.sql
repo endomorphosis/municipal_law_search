@@ -1,0 +1,22 @@
+CREATE TABLE citations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bluebook_cid TEXT NOT NULL,
+    cid TEXT NOT NULL,
+    title TEXT NOT NULL,
+    title_num TEXT,
+    date TEXT,
+    public_law_num TEXT,
+    chapter TEXT,
+    chapter_num TEXT,
+    history_note TEXT,
+    ordinance TEXT,
+    section TEXT,
+    enacted TEXT,
+    year TEXT,
+    place_name TEXT NOT NULL,
+    state_name TEXT NOT NULL,
+    state_code TEXT NOT NULL,
+    bluebook_state_code TEXT NOT NULL,
+    bluebook_citation TEXT NOT NULL,
+    index_level_0 INTEGER
+);

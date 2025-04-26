@@ -2,27 +2,11 @@
 OpenAI Client implementation for American Law database.
 Provides integration with OpenAI APIs and RAG components for legal research.
 """
-import os
-import numpy as np
-from typing import List, Dict, Any, Optional
-from openai import OpenAI
-from pathlib import Path
-import sqlite3
-from typing import Annotated, Callable, Literal, Never
-
-
 import duckdb
-import numpy as np
-import pandas as pd
-from pydantic import AfterValidator as AV, BaseModel, BeforeValidator as BV, computed_field, PrivateAttr, TypeAdapter, ValidationError
-import tiktoken
-import yaml
 
 
-from logger import logger
-from configs import configs, Configs
-from utils.app import clean_html
-from utils.common import safe_format
+from configs import configs
+
 
 
 TEST_QUERY_1 = """

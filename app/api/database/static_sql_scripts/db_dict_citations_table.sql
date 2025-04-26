@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS citations (
+    bluebook_cid VARCHAR PRIMARY KEY,
+    cid VARCHAR NOT NULL,
+    title VARCHAR NOT NULL,
+    public_law_num VARCHAR,
+    chapter VARCHAR,
+    ordinance TEXT,
+    section TEXT,
+    enacted TEXT,
+    year TEXT,
+    history_note TEXT,
+    place_name TEXT NOT NULL,
+    state_code TEXT NOT NULL,
+    bluebook_state_code TEXT NOT NULL,
+    state_name TEXT NOT NULL,
+    chapter_num TEXT,
+    title_num TEXT,
+    date TEXT,
+    bluebook_citation TEXT NOT NULL,
+    gnis VARCHAR NOT NULL
+);

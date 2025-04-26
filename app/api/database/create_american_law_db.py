@@ -1,11 +1,13 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor
 import csv
 from pathlib import Path
 
 
 import duckdb
+from huggingface_hub import HfApi, hf_hub_download
 import pandas as pd
 from tqdm import tqdm
 
@@ -14,6 +16,8 @@ from configs import configs
 from logger import logger
 from utils.common.run_in_process_pool import run_in_process_pool
 from api.database.fix_parquet_files_in_parallel import fix_parquet_files_in_parallel
+
+
 
 MEMORY_LIMIT_IN_MBS = 40
 MISSING_DATE_CSV = configs.AMERICAN_LAW_DATA_DIR / 'missing_data.csv'
@@ -477,11 +481,8 @@ def check_for_complete_set_of_parquet_files(unique_gnis: set[str], base_path: Pa
     return parquet_list
 
 
-import os
-from huggingface_hub import HfApi, hf_hub_download
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
-from utils.common.run_in_parallel_with_concurrency_limiter import run_in_parallel_with_concurrency_limiter
+
+
 
 def upload_files_to_database(parquet_list: list[list[tuple[str, Path]]]) -> None:
     """

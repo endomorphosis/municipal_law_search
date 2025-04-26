@@ -40,3 +40,4 @@ requests
 tiktoken
 sse-starlette
 torch
+openpyxl

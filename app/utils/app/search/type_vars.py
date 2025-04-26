@@ -5,7 +5,7 @@ This module defines TypeVar definitions for SQL connections, cursors,
 and language models to enable consistent type hinting throughout the application.
 """
 import sqlite3
-from typing import TypeVar
+from typing import Type, TypeVar
 
 
 import duckdb

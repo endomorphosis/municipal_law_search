@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import duckdb
-from typing import Union, Any
+from typing import Union
 
 from configs import configs
 
