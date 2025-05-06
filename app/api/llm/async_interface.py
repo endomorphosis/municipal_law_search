@@ -5,56 +5,16 @@ Provides access to OpenAI-powered legal research and RAG components with async s
 import os
 from pathlib import Path
 import re
-from typing import Dict, Any, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 from pydantic import BaseModel
 
 
-from app import configs, Configs
-from app import logger
-from .async_openai_client import AsyncOpenAIClient, AsyncLLMInput, AsyncLLMOutput
+from app import logger, configs, Configs
+from app.api.llm.dependencies.async_openai_client import AsyncOpenAIClient
 from .embeddings_utils import EmbeddingsManager
-
-
-async def _validate_and_correct_sql_query_string(sql_query: str, fix_broken_queries: bool = True) -> Optional[str]:
-    """
-    Validate and correct a SQL query string.
-    
-    Args:
-        sql_query: The SQL query string to validate
-        
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    logger.debug(f"Validating SQL query: {sql_query}")
-
-    # Check if it's an empty string
-    if not sql_query.strip():
-        logger.warning("Empty SQL query string provided.")
-        return None
-    
-    # Check if it any markdown patterns.
-    if "```sql" in sql_query or "```" in sql_query:
-        logger.warning("SQL query contains markdown code blocks.")
-        if fix_broken_queries:
-            # Remove markdown code blocks
-            sql_query = sql_query.replace("```sql", "").replace("```", "").strip()
-            logger.info("Removed markdown code blocks from SQL query.")
-            logger.debug(f"Cleaned SQL query after markdown removal: {sql_query}")
-        else:
-            logger.error("SQL query contains markdown code blocks and fix_broken_queries is False.")
-            return None
-
-    # Check if it's got SELECT in it
-    if not re.search(r'^\s*SELECT\s', sql_query, re.IGNORECASE):
-        logger.warning("SQL query does not start with SELECT.")
-        return None
-
-    # Check if it's got doubled elements like SELECT SELECT or LIMIT 10 LIMIT 20
-    sql_query = re.sub(r'\b(SELECT|LIMIT)\s+\1', r'\1', sql_query, flags=re.IGNORECASE).strip()
-    logger.debug(f"Cleaned SQL query after doubled elements removal: {sql_query}")
-    return sql_query if sql_query else None
+from app.utils.llm.validate_and_correct_sql_query_string import validate_and_correct_sql_query_string
 
 
 class AsyncLLMInterface:
@@ -62,11 +22,11 @@ class AsyncLLMInterface:
     Asynchronous interface for interacting with OpenAI LLM capabilities for the American Law dataset.
     Provides a simplified async API for accessing embeddings search and RAG functionality.
     """
-    
+
     def __init__(
         self,
-        api_key: Optional[str] = None,
         configs: Optional[Configs] = None,
+        resources: Optional[Dict[str, Callable]] = None
     ):
         """
         Initialize the async LLM interface.
@@ -77,22 +37,17 @@ class AsyncLLMInterface:
         """
         self.configs = configs
 
-        self.api_key: str = api_key or os.environ.get("OPENAI_API_KEY")
+        self.api_key: str = configs.OPENAI_API_KEY.get_secret_value()
         self.data_path: Path = configs.AMERICAN_LAW_DATA_DIR
         self.db_path: Path = configs.AMERICAN_LAW_DB_PATH
         self.model: str = configs.OPENAI_MODEL
         self.embedding_model: str = configs.OPENAI_EMBEDDING_MODEL
 
         # Initialize clients
-        self.openai_client: AsyncOpenAIClient = AsyncOpenAIClient(
-            api_key=self.api_key,
-            model=self.model,
-            embedding_model=self.embedding_model,
-            configs=self.configs
-        )
+        self.async_client: AsyncOpenAIClient = resources["async_client"]
         logger.info(f"Initialized AsyncLLMInterface with model: {self.model}")
     
-        self.embeddings_manager = EmbeddingsManager(configs=self.configs)
+        self.embeddings_manager = resources["embeddings_manager"]
         logger.info(f"Initialized Embeddings Manager with model: {self.embedding_model}")
 
 
@@ -102,7 +57,7 @@ class AsyncLLMInterface:
         use_rag: bool = True,
         use_embeddings: bool = True,
         document_limit: int = 5,
-        custom_system_prompt: Optional[str] = None
+        custom_system_prompt: str = "You are a legal research assistant specializing in American municipal and county laws."
     ) -> Dict[str, Any]:
         """
         Ask a question about American law asynchronously.
@@ -118,10 +73,19 @@ class AsyncLLMInterface:
             Dictionary with the generated response and additional information
         """
         logger.info(f"Processing question: {query}")
-        
+        messages = [
+            {"role": "system", "content": custom_system_prompt},
+            {"role": "user", "content": query}
+        ]
+        response = {
+            "query": query,
+            "context_used": [],
+            "model_used": self.async_client.model,
+            "total_tokens": 0
+        }
         if use_rag:
             # Use RAG to generate a response with context
-            response = await self.openai_client.generate_rag_response(
+            response = await self.async_client.generate_rag_response(
                 query=query,
                 use_embeddings=use_embeddings,
                 top_k=document_limit,
@@ -130,38 +94,37 @@ class AsyncLLMInterface:
         else:
             # Use OpenAI directly without RAG context
             try:
-                chat_response = await self.openai_client.client.chat.completions.create(
-                    model=self.openai_client.model,
-                    temperature=self.openai_client.temperature,
-                    max_tokens=self.openai_client.max_tokens,
-                    messages=[
-                        {"role": "system", "content": custom_system_prompt or "You are a legal research assistant specializing in American municipal and county laws."},
-                        {"role": "user", "content": query}
-                    ]
-                )
-                
-                response = {
-                    "query": query,
-                    "response": chat_response.choices[0].message.content,
-                    "context_used": [],
-                    "model_used": self.openai_client.model,
-                    "total_tokens": chat_response.usage.total_tokens
-                }
+                chat_response = await self.async_client.chat_completion(messages=messages)
+                response.update({
+                    "response": chat_response,
+                    "total_tokens": self.async_client.total_tokens
+                })
             except Exception as e:
                 logger.error(f"Error in direct LLM query: {e}")
-                response = {
-                    "query": query,
+                response.update({
                     "response": f"Error generating response: {str(e)}",
-                    "context_used": [],
-                    "model_used": self.openai_client.model,
                     "error": str(e)
-                }
-        
+                })
         return response
 
+    async def get_single_embedding(self, text: str) -> List[float]:
+        """
+        Get a single embedding for a given text asynchronously.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector
+        """
+        return await self.async_client.get_embeddings(text)
+        # if len(embedding_list) > 1:
+        #     logger.warning(f"Multiple embeddings returned for text: '{text}'. Returning first one.")
+        # return embedding_list[0]
 
     async def _generic_response(self, message: str = None, system_prompt: str = None) -> str:
-        return await self.openai_client.client.chat.completions.create(
+
+        return await self.async_client.client.chat.completions.create(
             model="gpt4o",
             messages=[
                 {"role": "system", "content": system_prompt.strip()},
@@ -183,7 +146,7 @@ class AsyncLLMInterface:
             Intent type as a string
         """
         # Make sure the response isn't anything nasty.
-        response = await self.openai_client.client.moderations.create(
+        response = await self.async_client.client.moderations.create(
             model="omni-moderation-latest",
             input=message,
         )
@@ -203,7 +166,7 @@ class AsyncLLMInterface:
         Wrap your final answer in Markdown (e.g. ```plaintext```).
         """
         try:
-            response = await self.openai_client.client.chat.completions.create(
+            response = await self.async_client.client.chat.completions.create(
                 model="gpt-3.5-turbo-0125",
                 messages=[
                     {"role": "system", "content": system_prompt.strip()},
@@ -262,7 +225,7 @@ class AsyncLLMInterface:
             List of relevant documents with similarity scores
         """
         # Generate embedding for the query
-        query_embedding = await self.openai_client.get_single_embedding(query)
+        query_embedding = await self.async_client.get_single_embedding(query)
         
         if file_id:
             # Search in a specific file
@@ -334,10 +297,10 @@ For legal citations, use Bluebook format when available. Be concise but thorough
         
         # Generate response using OpenAI
         try:
-            response = await self.openai_client.client.chat.completions.create(
-                model=self.openai_client.model,
-                temperature=self.openai_client.temperature,
-                max_tokens=self.openai_client.max_tokens,
+            response = await self.async_client.client.chat.completions.create(
+                model=self.async_client.model,
+                temperature=self.async_client.temperature,
+                max_tokens=self.async_client.max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Question: {query}\n\n{context_text}"}
@@ -348,7 +311,7 @@ For legal citations, use Bluebook format when available. Be concise but thorough
                 "query": query,
                 "response": response.choices[0].message.content,
                 "context_used": [doc.get('bluebook_citation', 'No citation') for doc in context_docs],
-                "model_used": self.openai_client.model,
+                "model_used": self.async_client.model,
                 "total_tokens": response.usage.total_tokens
             }
             
@@ -358,7 +321,7 @@ For legal citations, use Bluebook format when available. Be concise but thorough
                 "query": query,
                 "response": f"Error generating response: {str(e)}",
                 "context_used": [doc.get('bluebook_citation', 'No citation') for doc in context_docs],
-                "model_used": self.openai_client.model,
+                "model_used": self.async_client.model,
                 "error": str(e)
             }
     
@@ -443,8 +406,8 @@ Return ONLY the SQL query without any explanations."""
         
         try:
             # Generate SQL using OpenAI
-            response = await self.openai_client.client.chat.completions.create(
-                model=self.openai_client.model,
+            response = await self.async_client.client.chat.completions.create(
+                model=self.async_client.model,
                 temperature=0.2,  # Lower temperature for more deterministic output
                 max_tokens=500,   # SQL queries shouldn't be too long
                 messages=[
@@ -461,7 +424,7 @@ Return ONLY the SQL query without any explanations."""
                 logger.warning(f"Generated SQL doesn't contain SELECT statement: {sql_query}")
                 sql_query = f"-- Warning: This may not be a valid SQL query\n{sql_query}"
 
-            sql_query = await _validate_and_correct_sql_query_string(sql_query)
+            sql_query = await validate_and_correct_sql_query_string(sql_query)
             if sql_query is None:
                 logger.error("SQL query validation failed or returned empty. The LLM probably messed up.")
             else:
@@ -470,7 +433,7 @@ Return ONLY the SQL query without any explanations."""
             output_dict = {
                 "original_query": query,
                 "sql_query": sql_query if sql_query else "-- Error: No valid SQL query generated",
-                "model_used": self.openai_client.model,
+                "model_used": self.async_client.model,
                 "total_tokens": response.usage.total_tokens,
                 "error": None if sql_query else "Invalid SQL query generated"
             }

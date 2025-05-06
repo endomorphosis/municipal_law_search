@@ -1,10 +1,10 @@
-
-
 from typing import Annotated as Annot
+
 
 from pydantic import BaseModel, AfterValidator as AV
 
-from logger import logger
+
+from app import logger
 
 
 def _format_initial_sql_query_from_llm(sql_query: str) -> str:

@@ -4,16 +4,15 @@ from typing import Optional, Union
 from pydantic import BaseModel
 
 
-from api.llm.interface import LLMInterface
-from api.llm.async_interface import AsyncLLMInterface
-from logger import logger
+from app import logger
+from app.api.llm.interface import LLMInterface
 
 
 async def turn_english_into_sql(
         search_query: str, 
         per_page: int = 20, 
         offset: int = 0,
-        llm: Union[LLMInterface, AsyncLLMInterface] = None,
+        llm = None,
         parser: Optional[BaseModel] = None,
         ) -> Optional[str]:
     """
@@ -40,12 +39,12 @@ async def turn_english_into_sql(
         logger.info(f"Converting query to SQL: {search_query}")
         
         # Check if we're using the async interface
-        if isinstance(llm, AsyncLLMInterface):
-            sql_result = await llm.query_to_sql(search_query)
-        else:
+        if isinstance(llm, LLMInterface):
             # For backward compatibility with the sync interface
             sql_result = llm.query_to_sql(search_query)
-            
+        else:
+            sql_result = await llm.query_to_sql(search_query)
+
         sql_query: str = sql_result.get("sql_query")
         logger.debug(f"SQL query result: {sql_result}")
 

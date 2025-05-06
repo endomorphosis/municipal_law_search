@@ -4,9 +4,9 @@ from typing import Any
 import duckdb
 
 
-from configs import configs 
-from logger import logger
-from schemas.search_response import SearchResponse
+from app import configs 
+from app import logger
+from app.schemas.search_response import SearchResponse
 from .format_initial_sql_return_from_search import format_initial_sql_return_from_search
 
 

@@ -1,5 +1,6 @@
+import os
 from pathlib import Path
-
+import sys
 
 import torch
 from pydantic import (
@@ -14,6 +15,9 @@ import yaml
 
 
 _ROOT_DIR = Path(__file__).parent.parent
+
+# Insert this file's directory to the system path
+sys.path.insert(0, str(_ROOT_DIR))
 
 
 def _USE_GPU_FOR_COSINE_SIMILARITY() -> str:
@@ -46,7 +50,7 @@ class Configs(BaseModel):
         LOG_LEVEL (int): Logging level for the application (10 = DEBUG).
         SIMILARITY_SCORE_THRESHOLD (float): Threshold for cosine similarity scoring.
     """
-    OPENAI_API_KEY:                 SecretStr
+    OPENAI_API_KEY:                 SecretStr = os.environ.get("OPENAI_API_KEY")
     HUGGING_FACE_USER_ACCESS_TOKEN: SecretStr = None
     ROOT_DIR:                       DirectoryPath = _ROOT_DIR
     AMERICAN_LAW_DATA_DIR:          DirectoryPath = _ROOT_DIR / "data"
@@ -58,6 +62,7 @@ class Configs(BaseModel):
     OPENAI_EMBEDDING_MODEL:         str = "text-embedding-3-small"
     LOG_LEVEL:                      int = 10
     SIMILARITY_SCORE_THRESHOLD:     float = 0.3
+    SEARCH_EMBEDDING_BATCH_SIZE:    int = 10000
 
     @computed_field # type: ignore[prop-decorator]
     @property

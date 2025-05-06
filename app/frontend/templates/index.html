@@ -20,6 +20,7 @@
     <link href="/src/css/ourteam/ourteam.css" rel="stylesheet">
     <link href="/src/css/menu/menu.css" rel="stylesheet">
     <link href="/src/css/stalling/stalling.css" rel="stylesheet">
+    <link href="/src/css/history/history.css" rel="stylesheet">
 </head>
 
 <body>
@@ -46,6 +47,9 @@
             </button>
             <div id="menuDropdown" class="absolute right-0 top-full mt-2 w-48 bg-white shadow-lg rounded-md hidden z-10">
                 <div class="py-1">
+                    <button id="historyBtn" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">
+                        <i class="fas fa-history mr-2"></i> Search History
+                    </button>
                     <button id="disclaimerBtn" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Disclaimer</button>
                     <button id="aboutBtn" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">About</button>
                     <button id="contactBtn" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Contact</button>
@@ -129,6 +133,27 @@
     </div>
 
     <!-- Toast notification -->
+    <!-- Search History Modal -->
+    <div id="historyModal" class="history-modal">
+        <div class="history-modal-content">
+            <div class="history-header">
+                <h2>Search History</h2>
+                <span class="history-close">&times;</span>
+            </div>
+            <div id="historyList" class="history-list">
+                <!-- History items will be populated here -->
+            </div>
+            <div id="historyPagination" class="history-pagination">
+                <!-- Pagination will be populated here -->
+            </div>
+            <div class="history-footer">
+                <button id="historyClearBtn" class="history-clear-btn">
+                    <i class="fas fa-trash-alt"></i> Clear All History
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast">
         <i id="toastIcon" class="fas"></i>
         <div id="toastMessage"></div>
@@ -141,6 +166,7 @@
     <script src="/src/js/about/about.js"></script>
     <script src="/src/js/contact/contact.js"></script>
     <script src="/src/js/ourteam/ourteam.js"></script>
+    <script src="/src/js/history/history.js"></script>
     <script src="/src/js/menu/menu.js" defer></script>
 </body>
 

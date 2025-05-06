@@ -12,9 +12,9 @@ import pandas as pd
 from tqdm import tqdm
 
 
-from configs import configs
-from logger import logger
-from utils.common.run_in_process_pool import run_in_process_pool
+from app import configs
+from app import logger
+from app.utils.common.run_in_process_pool import run_in_process_pool
 from api.database.fix_parquet_files_in_parallel import fix_parquet_files_in_parallel
 
 
@@ -414,7 +414,7 @@ def check_for_complete_set_of_parquet_files(unique_gnis: set[str], base_path: Pa
             organized by file type [citations_list, html_list, embeddings_list]
     
     Note:
-        - The base_path is overridden to use the path from configs
+        - The base_path is overridden to use the path from app
         - Files are verified for existence before inclusion
         - Citation files are also loaded to verify they are not corrupted
         - Missing files are logged to a CSV file

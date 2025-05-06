@@ -11,10 +11,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from pydantic import BaseModel
 
 from app import configs, Configs, logger
-from configs import configs, Configs
-from logger import logger
-from .openai_client import OpenAIClient, LLMInput, LLMOutput
-from .embeddings_utils import EmbeddingsManager
+from app.api.llm.dependencies.openai_client import OpenAIClient, LLMInput, LLMOutput
+from app.api.llm.embeddings_utils import EmbeddingsManager
 
 
 def _validate_and_correct_sql_query_string(sql_query: str, fix_broken_queries: bool = True) -> Optional[str]:

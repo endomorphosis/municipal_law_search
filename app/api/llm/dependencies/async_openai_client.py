@@ -3,72 +3,27 @@ OpenAI Client implementation for American Law database.
 Provides integration with OpenAI APIs and RAG components for legal research.
 """
 from pathlib import Path
-from typing import Any, Annotated, Callable, Dict, List, Literal, Never, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 import duckdb
-import numpy as np
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessage
 import pandas as pd
 from pydantic import (
-    AfterValidator as AV, 
     BaseModel, 
-    BeforeValidator as BV, 
     computed_field, 
     FilePath,
     PrivateAttr, 
-    ValidationError,
 )
 import tiktoken
-import yaml
 
 
-from api.llm.constants import MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS
-from configs import configs, Configs
-from logger import logger
-
-from utils.app import clean_html
-from utils.common import safe_format
-from utils.llm.cosine_similarity import cosine_similarity 
-
-
-def validate_prompt(prompt: str) -> Never:
-    if "role" not in prompt:
-        raise ValidationError("Prompt must contain 'role' key.")
-    if "content" not in prompt:
-        raise ValidationError("Prompt must contain 'content' key.")
-
-class PromptFields(BaseModel):
-    role: str
-    content: str
-
-class Prompt(BaseModel):
-    client: Literal['openai', 'anthropic']
-    system_prompt: PromptFields
-    user_prompt: PromptFields
-
-    def safe_format(self, **kwargs) -> None:
-        """
-        Safely insert kwargs into the system and user prompts.
-        Only keys that exist in the respective prompt templates will be used for formatting.
-        """
-        if not kwargs:
-            return self.model_dump()
-        
-        sys_kwargs = {k: v for k, v in kwargs.items() if k in self.system_prompt.content}
-        user_kwargs = {k: v for k, v in kwargs.items() if k in self.user_prompt.content}
-
-        self.system_prompt.content = safe_format(self.system_prompt.content, **sys_kwargs)
-        self.user_prompt.content = safe_format(self.user_prompt.content, **user_kwargs)
-
-
-def _load_prompt_from_yaml(name: str, configs: Configs, **kwargs) -> Prompt:
-    prompt_dir = configs.PROMPTS_DIR
-    prompt_path = prompt_dir / f"{name}.yaml"
-
-    with open(prompt_path, 'r') as file:
-        prompt = dict(yaml.safe_load(file))
-        return Prompt.model_validate(prompt).safe_format(**kwargs)
+from app import logger, configs, Configs
+from app.api.llm.constants import MODEL_USAGE_COSTS_USD_PER_MILLION_TOKENS
+from app.utils.app import clean_html
+from app.utils.common import safe_format
+from app.api.llm.load_prompt_from_yaml import load_prompt_from_yaml, Prompt
 
 
 def calculate_cost(prompt: str, data: str, out: str, model: str) -> Optional[int]:
@@ -348,10 +303,50 @@ class AsyncOpenAIClient:
         self.data_path: Path = configs.AMERICAN_LAW_DATA_DIR
         self.db_path:   Path = configs.AMERICAN_LAW_DB_PATH
 
+        self._latest_response = None
+
         logger.info(f"Initialized AsyncOpenAI client: LLM model: {model}, embedding model: {embedding_model}")
 
+    @property
+    def total_tokens(self) -> int:
+        """
+        Get the total tokens used in the last request.
+        
+        Returns:
+            Total tokens used
+        """
+        return self._latest_response.usage.total_tokens if self._latest_response else 0
 
-    async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+    async def chat_completion(self,
+        messages: List[Dict[str, str]] = None,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None
+        ) -> Optional[str]:
+        """
+        Generate a chat completion using the OpenAI API.
+        
+        Returns:
+            Chat completion response
+        """
+        # Reset the latest response if it's not None
+        if self._latest_response is not None:
+            self._latest_response = None
+        try:
+            response = await self.client.chat.completions.create(
+                model=model or self.model,
+                temperature=temperature or self.temperature,
+                max_tokens=max_tokens or self.max_tokens,
+                messages=messages
+            )
+            self._latest_response = response
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Error generating chat completion: {e}")
+            return ""
+
+
+    async def get_embeddings(self, texts: List[str] | str) -> List[List[float]] | None:
         """
         Generate embeddings for a list of text inputs using OpenAI's embedding model.
         
@@ -359,10 +354,12 @@ class AsyncOpenAIClient:
             texts: List of text strings to generate embeddings for
             
         Returns:
-            List of embedding vectors
+            An embedding vector, list of embedding vectors, or None if no embeddings are generated
         """
         if not texts:
             return []
+        if isinstance(texts, str):
+            texts = [texts]
         
         try:
             # Prepare texts by stripping whitespace and handling empty strings
@@ -373,30 +370,14 @@ class AsyncOpenAIClient:
                 input=processed_texts,
                 model=self.embedding_model
             )
-            
+
             # Extract the embedding vectors from the response
-            embeddings = [data.embedding for data in response.data]
-            return embeddings
-            
+            embeddings: list[list[float]] = [data.embedding for data in response.data]
+            return embeddings if embeddings else []
+
         except Exception as e:
             logger.error(f"Error generating embeddings: {e}")
             raise
-    
-
-    async def get_single_embedding(self, text: str) -> List[float]:
-        """
-        Generate an embedding for a single text input.
-        
-        Args:
-            text: Text string to generate an embedding for
-            
-        Returns:
-            Embedding vector
-        """
-        embeddings = await self.get_embeddings([text])
-        if embeddings:
-            return embeddings[0]
-        return []
 
     async def search_embeddings(
         self, 
@@ -416,7 +397,8 @@ class AsyncOpenAIClient:
             List of relevant documents with similarity scores
         """
         # Generate embedding for the query
-        query_embedding = await self.get_single_embedding(query)
+        query_embedding = await self.get_embeddings(query)
+        query_embedding = query_embedding[0] if query_embedding else None
         
         results = []
 
@@ -585,7 +567,7 @@ class AsyncOpenAIClient:
             """
 
         # Generate response using OpenAI
-        prompt = _load_prompt_from_yaml("generate_rag_response", self.configs, query=query, context=context_text)
+        prompt: Prompt = load_prompt_from_yaml("generate_rag_response", self.configs, query=query, context=context_text)
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,

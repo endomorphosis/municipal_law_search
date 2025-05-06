@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Implemented Search History feature:
+  - Created `search_history` table in database with appropriate indexes
+  - Added API endpoints for retrieving, deleting, and clearing search history
+  - Integrated search history with existing search functionality
+  - Implemented frontend UI for displaying and managing search history
+  - Added client-side cookie tracking for per-user history without requiring login
+  - Enabled "search again" functionality for previous searches
 - Comprehensive Google-style docstrings for missing modules and functions:
   - Added module docstrings for app modules, including logger.py
   - Added docstrings for Pydantic models in schemas package (ErrorResponse, LawItem)

@@ -12,8 +12,8 @@ import duckdb
 from pydantic import BaseModel, Field
 
 
-from configs import configs 
-from logger import logger
+from app import configs 
+from app import logger
 
 
 class _SearchQuery(BaseModel):
@@ -33,7 +33,7 @@ class _SearchQuery(BaseModel):
     """
     search_query_cid: str
     search_query: str
-    embedding: list[float] = Field(max_length=1536, min_length=1536) # Length of OpenAI's small embedding.
+    embedding: list = Field(max_length=1536, min_length=1536) # NOTE Length of OpenAI's small embedding.
     total_results: int
     cids_for_top_100: str
 
@@ -108,6 +108,11 @@ def sort_and_save_search_query_results(
     # String them together in that order for the query.
     top_100_cids = [cid for cid, _ in query_table_embedding_cids[:100]]
     #logger.debug(f"top_100_cids: {top_100_cids}")
+
+    # If search_query_embedding is a list of list of floats, flatten it.
+    # TODO This is hacky, refactor this to be more robust.
+    if len(search_query_embedding) == 1 and isinstance(search_query_embedding[0], list):
+        search_query_embedding = search_query_embedding[0]
 
     # Save the results CIDs to the query_hash table
     logger.info("Saving top 100 query results to search_query table...")

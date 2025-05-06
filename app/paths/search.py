@@ -17,26 +17,23 @@ from fastapi import HTTPException, Query
 from pydantic import BaseModel, PositiveInt
 
 
-from configs import configs, Configs
-from logger import logger
+from app import logger, configs, Configs
+from app.api.llm.async_interface import AsyncLLMInterface
 
-from app.api.database.implementations.types import SqlConnection, SqlCursor
-from api.llm.async_interface import AsyncLLMInterface
 from app.llm import LLM
-
-from schemas.search_response import SearchResponse
-from utils.app.search.format_initial_sql_return_from_search import format_initial_sql_return_from_search
-from utils.app.search.get_embedding_and_calculate_cosine_similarity import (
+from app.schemas.search_response import SearchResponse
+from app.utils.app.search.format_initial_sql_return_from_search import format_initial_sql_return_from_search
+from app.utils.app.search.get_embedding_and_calculate_cosine_similarity import (
     get_embedding_and_calculate_cosine_similarity
 )
-from utils.app.get_html_for_this_citation import get_html_for_this_citation
-from utils.app._get_a_database_connection import get_a_database_connection
+from app.utils.app.get_html_for_this_citation import get_html_for_this_citation
+from app.utils.app._get_a_database_connection import get_a_database_connection
 
-from utils.common import get_cid
-from utils.common.run_in_process_pool import async_run_in_process_pool
+from app.utils.common import get_cid
+from app.utils.common.run_in_process_pool import async_run_in_process_pool
 
 
-from utils.app.search import (
+from app.utils.app.search import (
     close_database_connection,
     close_database_cursor,
     estimate_the_total_count_without_pagination,
@@ -44,11 +41,9 @@ from utils.app.search import (
     get_cached_query_results,
     get_data_from_sql,
     get_database_cursor,
-    get_embedding_cids_for_all_the_cids,
+    get_embedding_cids,
     LLMSqlOutput,
     sort_and_save_search_query_results,
-    SqlConnection,
-    SqlCursor,
     turn_english_into_sql,
     make_search_query_table_if_it_doesnt_exist,
 )
@@ -94,7 +89,6 @@ class SearchFunction:
 
     def __init__(self, 
                  search_query: str = None, 
-                 llm: AsyncLLMInterface = None, 
                  resources: dict[str, Callable] = None, 
                  configs: Configs = None
                 ):
@@ -121,7 +115,7 @@ class SearchFunction:
         self.llm: AsyncLLMInterface = self.resources['LLM']
         if not self.search_query:
             raise ValueError("Search query cannot be None or empty.")
-        if not llm:
+        if not self.llm:
             raise ValueError("LLM cannot be None.")
 
         # Define initial variable states
@@ -171,10 +165,7 @@ class SearchFunction:
     async def __aenter__(self) -> 'SearchFunction':
         """
         Async context manager entry point.
-        
-        Gets the embedding for the search query when the context is entered,
-        ensuring the embedding is available for similarity calculations.
-        
+
         Returns:
             The SearchFunction instance
         """
@@ -185,15 +176,15 @@ class SearchFunction:
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
         """
         Async context manager exit point.
-        
+
         Ensures all database resources are properly closed when the context is exited,
         even if an exception occurred.
-        
+
         Args:
             exc_type: The exception type, if an exception was raised in the context
             exc_value: The exception value, if an exception was raised in the context
             traceback: The traceback, if an exception was raised in the context
-            
+
         Returns:
             None
         """
@@ -202,20 +193,7 @@ class SearchFunction:
 
 
     def close_cursor_and_connection(self) -> None:
-        """
-        Closes the database cursor and connection.
-        
-        This method ensures that all database resources are properly released,
-        preventing resource leaks. It should be called when the search operation
-        is complete or if an error occurs.
-        
-        The algorithm:
-        1. If a cursor exists, close it
-        2. If a connection exists, close it
-        
-        Returns:
-            None
-        """
+        """Closes the database cursor and connection."""
         if self.class_cursor:
             self._close_database_cursor(self.class_cursor)
         if self.class_connection:
@@ -225,15 +203,7 @@ class SearchFunction:
     def get_data_from_sql(self, cursor, return_a: str = 'dict', sql_query: str = None, how_many: int = None) -> list[dict[str, Any]]:
         """
         Execute a SQL query and return the results in the specified format.
-        
-        This method is a wrapper around the _get_data_from_sql utility function,
-        providing a consistent interface for executing SQL queries and retrieving
-        results in various formats.
-        
-        The algorithm:
-        1. Call the _get_data_from_sql function with the provided parameters
-        2. Return the results in the specified format
-        
+
         Args:
             cursor: The database cursor to use for executing the query
             return_a: The format to return results in ('dict', 'tuple', or 'df')
@@ -248,22 +218,13 @@ class SearchFunction:
 
     def estimate_the_total_count_without_pagination(self, sql_query: str) -> int:
         """
-        Estimates the total count of records that would be returned by a SQL query.
-        
-        This method calculates the total number of results that would be returned by
-        the given SQL query without pagination. This is used to determine the total
-        number of pages for pagination and to provide count information to the client.
-        
-        The algorithm:
-        1. Create a COUNT(*) query that wraps the original SQL query
-        2. Execute the COUNT(*) query using the class cursor
-        3. Extract the count value from the result
-        4. Log the total count
-        5. Return the total count
-        
+        Estimate the total count of records that would be returned by a SQL query.
+        This is used to determine the total number of pages for pagination and 
+        to provide count information to the client.
+
         Args:
             sql_query: The SQL query whose results we want to count
-            
+
         Returns:
             int: Total number of records that would be returned by the query
         """
@@ -279,22 +240,14 @@ class SearchFunction:
     def execute_the_actual_query_with_pagination(self, sql_query: str) -> list[dict[str, Any]]:
         """
         Executes the SQL query with pagination and formats the initial results.
-        
+
         This method executes the given SQL query using the class cursor,
         processes the results to avoid duplicates, and formats them using the
         _format_initial_sql_return_from_search utility.
-        
-        The algorithm:
-        1. Execute the SQL query using the class cursor
-        2. Convert the results to a list of dictionaries
-        3. Iterate through the rows, checking for duplicates
-        4. Add unique CIDs to the cid_set to track seen content
-        5. Format the initial results using the format utility
-        6. Return the formatted results
-        
+
         Args:
             sql_query: The SQL query to execute
-            
+
         Returns:
             list[dict]: Initial formatted results from the SQL query
         """
@@ -343,15 +296,17 @@ class SearchFunction:
         Yields:
             list[dict]: Updated cumulative results after each batch of processing
         """
-        for embedding_id_list in get_embedding_cids_for_all_the_cids(initial_results):
+        # Get the embedding CIDs from the initial results, piece-meal.
+        for embedding_id_list in get_embedding_cids(initial_results, batch_size=configs.SEARCH_EMBEDDING_BATCH_SIZE):
             pull_list = []
+            embedding_id_list: list[dict[str, str]]
 
             embedding_func: Callable = functools.partial(
                 get_embedding_and_calculate_cosine_similarity,
                 query_embedding=self.search_query_embedding,
             )
 
-            pull_list: list[tuple[str, float]] = await get_embeddings_in_parallel_using_process_pool(embedding_func, embedding_id_list, pull_list)
+            pull_list: list[tuple[str, float]] = await get_embeddings_in_parallel(embedding_func, embedding_id_list, pull_list)
 
             # Order the pull list by their cosine similarity score.
             pull_list = sorted(pull_list, key=lambda x: x[1], reverse=True)
@@ -377,22 +332,10 @@ class SearchFunction:
     def sort_and_save_search_query_results(self) -> None:
         """
         Sort the results by similarity score and save the top 100 to the database.
-        
-        This method saves the search query, its embedding, and the top 100 results 
-        to the database for future use. This caching mechanism improves performance
-        for repeated or similar searches.
-        
-        The algorithm:
-        1. Check if there are any embedding CIDs to cache
-        2. If there are, call the _sort_and_save_search_query_results utility
-           with the search query information and results
-        
+        This allows for caching of search results for future queries that are similar.
+
         Returns:
             None
-        
-        Notes:
-            This method is typically called after completing a search to ensure
-            future searches for the same query can use cached results.
         """
         if self.query_table_embedding_cids:
             self._sort_and_save_search_query_results(
@@ -406,26 +349,14 @@ class SearchFunction:
     async def turn_english_into_sql(self, page: int, per_page: int) -> str:
         """
         Convert a natural language query to a SQL query using the LLM.
-        
-        This method uses the language model to transform the user's natural language
-        query into a valid SQL query that can be executed against the database.
-        It handles pagination by calculating the appropriate offset and including
-        LIMIT and OFFSET clauses in the generated SQL.
-        
-        The algorithm:
-        1. Calculate the offset based on page number and page size
-        2. Call the _turn_english_into_sql utility with the search query and pagination info
-        3. Handle any exceptions that occur during SQL generation
-        4. Validate that a SQL query was successfully generated
-        5. Return the SQL query string
-        
+
         Args:
             page: The page number of results to retrieve (1-based)
             per_page: The number of results per page
-            
+
         Returns:
             str: A SQL query string generated by the LLM
-            
+
         Raises:
             HTTPException: If there is an error generating the SQL query or if the LLM
                           fails to produce a valid query
@@ -595,7 +526,7 @@ class SearchFunction:
         return (total + per_page - 1) // per_page
 
 
-    async def search(self, page: int = 1, per_page: int = 20) -> AsyncGenerator:
+    async def search(self, page: int = 1, per_page: int = 20, client_id: str = None) -> AsyncGenerator:
         """
         Search for citations in the database using a natural language query.
         
@@ -609,6 +540,7 @@ class SearchFunction:
         5. Perform embedding-based similarity ranking
         6. Stream results incrementally to enable responsive UI
         7. Cache results for future use
+        8. Save the search to the user's search history
         
         The algorithm in detail:
         1. Check for cached results in the search_query table
@@ -624,11 +556,13 @@ class SearchFunction:
            c. Yield incremental results for streaming
         7. Close database connections
         8. Sort and cache results for future use
-        9. Yield final complete results
+        9. Save the search to the user's search history if client_id is provided
+        10. Yield final complete results
         
         Args:
             page: The page number of results to retrieve (1-based)
             per_page: The number of results per page
+            client_id: Optional client identifier for search history tracking
             
         Yields:
             dict: Search response containing results, pagination info, and totals
@@ -643,6 +577,15 @@ class SearchFunction:
         # If they do, yield the cached results and return.
         cached_results = self.get_cached_query_results(page, per_page)
         if cached_results:
+            # If we have cached results and a client ID, save to search history
+            if client_id:
+                from app.utils.app.search.save_search_history import save_search_history
+                save_search_history(
+                    search_query_cid=self.search_query_cid,
+                    search_query=self.search_query,
+                    client_id=client_id,
+                    result_count=cached_results.get('total', 0)
+                )
             yield cached_results
             return # Return to prevent a full embedding search.
 
@@ -670,6 +613,16 @@ class SearchFunction:
         self.close_cursor_and_connection()
 
         self.sort_and_save_search_query_results()
+        
+        # Save search to history if client_id is provided and we have results
+        if client_id and self.total > 0:
+            from app.utils.app.search.save_search_history import save_search_history
+            save_search_history(
+                search_query_cid=self.search_query_cid,
+                search_query=self.search_query,
+                client_id=client_id,
+                result_count=self.total
+            )
 
         # Final yield with complete results
         yield {
@@ -694,9 +647,9 @@ resources = {
     'get_data_from_sql': get_data_from_sql,
     'get_database_cursor': get_database_cursor,
     'get_embedding_and_calculate_cosine_similarity': get_embedding_and_calculate_cosine_similarity,
-    'get_embedding_cids_for_all_the_cids': get_embedding_cids_for_all_the_cids,
+    'get_embedding_cids': get_embedding_cids,
     'get_html_for_this_citation': get_html_for_this_citation,
-    'get_single_embedding': LLM.openai_client.get_single_embedding,
+    'get_single_embedding': LLM.get_single_embedding,
     'LLM': LLM,
     'LLMSqlOutput': LLMSqlOutput,
     'make_search_query_table_if_it_doesnt_exist': make_search_query_table_if_it_doesnt_exist,
@@ -705,9 +658,37 @@ resources = {
 }
 
 
+def _make_cid_list(embedding_id_list: list[tuple[str, str]], cid_name: str) -> str:
+    cid_list = [
+        f" {cid_name} = '{cid[cid_name].strip()}'" if i == 1 else f" OR {cid_name} = '{cid[cid_name].strip()}'"
+        for i, cid in enumerate(embedding_id_list, start=1)
+    ]
+    cid_list = ''.join(cid_list)
+    return cid_list
+
+def _pull_embeddings_from_db(embedding_id_list: list[tuple[str, str]]) -> list[dict]:
+
+    # Create the SQL query to pull the embeddings from the database.
+    query = "SELECT embedding, cid FROM embeddings WHERE" + embedding_id_list
+
+    # Pull the embeddings from the database as a list of dictionaries.
+    with duckdb.connect(configs.AMERICAN_LAW_DATA_DIR / "embeddings.db", read_only=True) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query)
+            return cursor.fetchdf().to_dict(orient='records')
+
 # NOTE We need to do this to get around pickling errors.
-async def get_embeddings_in_parallel_using_process_pool(func: Callable, embedding_id_list: list[tuple[str, str]], pull_list: list) -> list:
-    async for _, embedding_id in async_run_in_process_pool(func, embedding_id_list):
+async def get_embeddings_in_parallel(
+        func: Callable, 
+        embedding_id_list: list[dict[str, str]], 
+        pull_list: list
+        ) -> list[tuple[str, float]]:
+
+    cid_list = _make_cid_list(embedding_id_list, "embedding_cid")
+
+    embeddings_with_cids = _pull_embeddings_from_db(cid_list) # -> list[dict[str, str|float]]
+
+    async for _, embedding_id in async_run_in_process_pool(func, embeddings_with_cids):
         if embedding_id is not None:
             pull_list.append(embedding_id)
     return pull_list
@@ -717,6 +698,7 @@ async def function(
     q: str = "",
     page: int = Query(1, description="Page number"),
     per_page: int = Query(20, description="Items per page"),
+    client_id: str = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """
     API endpoint for searching the American law database using natural language.
@@ -731,16 +713,19 @@ async def function(
     - Cached results for performance
     - Streaming results for responsiveness
     - Pagination support
+    - Search history tracking (when client_id is provided)
     
     The algorithm:
     1. Create a SearchFunction instance with the query and dependencies
     2. Use the SearchFunction as an async context manager
     3. Stream results from the search method to the client
+    4. Save the search to history if client_id is provided
     
     Args:
         q: The natural language search query
         page: The page number of results to retrieve (1-based)
         per_page: The number of results per page
+        client_id: Optional client identifier for search history tracking
         
     Yields:
         dict: Search response containing results, pagination info, and totals
@@ -751,5 +736,5 @@ async def function(
         ```
     """
     async with SearchFunction(search_query=q, resources=resources, configs=configs) as search_func:
-        async for result in search_func.search(page=page, per_page=per_page):
+        async for result in search_func.search(page=page, per_page=per_page, client_id=client_id):
             yield result

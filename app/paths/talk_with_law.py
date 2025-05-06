@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 
-from configs import configs, Configs
+from app import configs, Configs
 
 
 from app.llm import LLM

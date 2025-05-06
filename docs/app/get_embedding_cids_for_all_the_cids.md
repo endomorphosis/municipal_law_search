@@ -1,19 +1,19 @@
-# get_embedding_cids_for_all_the_cids.py: last updated 02:01 AM on April 08, 2025
+# get_embedding_cids.py: last updated 02:01 AM on April 08, 2025
 
-**File Path:** `/home/kylerose1946/american_law_search/app/utils/app/search/get_embedding_cids_for_all_the_cids.py`
+**File Path:** `/home/kylerose1946/american_law_search/app/utils/app/search/get_embedding_cids.py`
 
 ## Table of Contents
 
 ### Functions
 
-- [`get_embedding_cids_for_all_the_cids`](#get_embedding_cids_for_all_the_cids)
+- [`get_embedding_cids`](#get_embedding_cids)
 
 ## Functions
 
-## `get_embedding_cids_for_all_the_cids`
+## `get_embedding_cids`
 
 ```python
-def get_embedding_cids_for_all_the_cids(initial_results, batch_size)
+def get_embedding_cids(initial_results, batch_size)
 ```
 
 Retrieves embedding CIDs for all the provided CIDs from the embeddings database.

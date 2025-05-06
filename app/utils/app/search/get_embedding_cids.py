@@ -6,11 +6,11 @@ import duckdb
 import tqdm
 
 
-from logger import logger
-from utils.database.get_db import get_embeddings_db
+from app import logger
+from app.utils.database.get_db import get_embeddings_db
 
 
-def get_embedding_cids_for_all_the_cids(
+def get_embedding_cids(
         initial_results: list[dict], 
         batch_size: int = 100
         ) -> Generator[None, None, list[dict]]:

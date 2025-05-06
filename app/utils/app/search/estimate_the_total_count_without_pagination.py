@@ -4,7 +4,7 @@ Utility for estimating the total number of results from a SQL query.
 This module provides a function to count the total number of results that
 would be returned by a SQL query, useful for pagination calculations.
 """
-from logger import logger
+from app import logger
 from .type_vars import SqlCursor
 
 

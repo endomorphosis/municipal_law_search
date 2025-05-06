@@ -2,10 +2,10 @@ import numpy as np
 import torch
 
 
-from configs import configs
+from app import logger, configs
 
 
-def _torch_cosine_similarity(x: torch.Tensor, y: torch.Tensor) -> np.float64:
+def _torch_cosine_similarity(x: list[float], y: list[float]) -> np.float64:
     """
     Compute the cosine similarity between two vectors using PyTorch.
 
@@ -32,8 +32,8 @@ def _torch_cosine_similarity(x: torch.Tensor, y: torch.Tensor) -> np.float64:
     # Calculate cosine similarity using torch
     return np.float64(
         torch.nn.functional.cosine_similarity(
-            x_tensor.unsqueeze(0), 
-            y_tensor.unsqueeze(0)
+            x_tensor, 
+            y_tensor
         ).item()
     )
 

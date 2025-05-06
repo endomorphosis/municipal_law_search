@@ -8,7 +8,7 @@ import psutil
 import tqdm
 
 
-from logger import logger
+from app import logger
 
 
 def run_in_process_pool(
@@ -98,7 +98,8 @@ def run_in_process_pool(
 async def async_run_in_process_pool(
         func: Callable | Coroutine, 
         inputs: Container, *, 
-        max_concurrency: Optional[int] = None
+        max_concurrency: Optional[int] = None,
+        override_max_concurrency: Optional[int] = None,
         ) -> AsyncGenerator[None, tuple[Any, Optional[Any]]]:
     """
     Asynchronously execute a function across multiple inputs using separate processes.
@@ -140,6 +141,10 @@ async def async_run_in_process_pool(
     # Default to using all CPU cores but one.
     if max_concurrency is None:
         max_workers = max_concurrency = psutil.cpu_count(logical=False) - 1
+
+    # If override_max_concurrency is set, use that instead.
+    if override_max_concurrency is not None:
+        max_concurrency = override_max_concurrency
 
     # Make sure we get a consistent iterator throughout
     func_inputs = iter(inputs)

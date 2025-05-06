@@ -4,7 +4,7 @@ import sqlite3
 import duckdb
 
 
-from configs import configs
+from app import configs
 
 
 _AMERICAN_LAW_DB_PATH =  configs.AMERICAN_LAW_DATA_DIR / "american_law.db"

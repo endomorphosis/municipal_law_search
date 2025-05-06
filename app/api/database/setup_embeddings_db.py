@@ -4,7 +4,7 @@ import sqlite3
 import duckdb
 from typing import Union
 
-from configs import configs
+from app import logger, configs, Configs
 
 embeddings_db_path = configs.AMERICAN_LAW_DATA_DIR / "american_law.db"
 

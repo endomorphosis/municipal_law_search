@@ -7,7 +7,7 @@
 Logging configuration module for the American Law Search application.
 
 This module sets up the logging system with custom formatting and uses the
-configuration from configs.py to determine the logging level. The logger created
+configuration from app.py to determine the logging level. The logger created
 here is used throughout the application for consistent logging behavior.
 
 The log format includes timestamp, log level, filename, line number and message,

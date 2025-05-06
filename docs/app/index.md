@@ -78,7 +78,7 @@
 - [get_cached_query_results.py](get_cached_query_results.md): last updated 02:01 AM on April 08, 2025
 - [get_database_cursor.py](get_database_cursor.md): last updated 02:01 AM on April 08, 2025
 - [get_embedding_and_calculate_cosine_similarity.py](get_embedding_and_calculate_cosine_similarity.md): last updated 02:01 AM on April 08, 2025
-- [get_embedding_cids_for_all_the_cids.py](get_embedding_cids_for_all_the_cids.md): last updated 02:01 AM on April 08, 2025
+- [get_embedding_cids.py](get_embedding_cids.md): last updated 02:01 AM on April 08, 2025
 - [llm_sql_output.py](llm_sql_output.md): last updated 02:01 AM on April 08, 2025
 - [make_search_query_table_if_it_doesnt_exist.py](make_search_query_table_if_it_doesnt_exist.md): last updated 02:01 AM on April 08, 2025
 - [sort_and_save_search_query_results.py](sort_and_save_search_query_results.md): last updated 02:01 AM on April 08, 2025

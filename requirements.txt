@@ -41,3 +41,4 @@ tiktoken
 sse-starlette
 torch
 openpyxl
+anthropic
