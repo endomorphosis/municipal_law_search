@@ -5,9 +5,9 @@ import duckdb
 import numpy as np
 
 
-from app import configs
-from app import logger
-from app.utils.llm.cosine_similarity import cosine_similarity
+from configs import configs
+from logger import logger
+from utils.llm.cosine_similarity import cosine_similarity
 
 def _return_single_embedding(embedding_data: dict[str, str]) -> list[float]:
 

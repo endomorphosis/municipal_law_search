@@ -1,9 +1,10 @@
 import hashlib
-from multiformats import CID, multihash
 import os
 from pathlib import Path
 import tempfile
-import os
+
+
+from multiformats import CID, multihash
 
 
 class IpfsMultiformats:

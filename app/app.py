@@ -4,6 +4,8 @@
 The FastAPI application that serves as an API for accessing American law documents.
 """
 from __future__ import annotations
+import __main__
+
 from dotenv import load_dotenv
 import json
 from pathlib import Path
@@ -21,16 +23,17 @@ from sse_starlette.sse import EventSourceResponse
 import uvicorn
 
 
-from .logger import logger
+from logger import logger
 
 
-import app.paths.search as search
-import app.paths.search_history as search_history
-from app.schemas.law_item import LawItem
-from app.schemas.error_response import ErrorResponse
+import paths.search as search
+import paths.search_history as search_history
+from schemas import LawItem
+from schemas import ErrorResponse
 
-from app.utils.database.get_db import get_html_db
-
+from utils import get_html_db
+from llm import LLM
+from app.read_only_database import READ_ONLY_DB
 
 # Load environment variables
 load_dotenv()
@@ -128,7 +131,7 @@ async def search_sse_response(
     q: str = Query("", description="Search query"),
     page: int = Query(1, description="Page number"),
     per_page: int = Query(20, description="Items per page"),
-    client_id: str = Depends(search_history.get_or_create_client_id),
+    client_id: str = None #Depends(search_history.get_or_create_client_id),
 ):
     """
     Server-Sent Events endpoint that streams search results incrementally.
@@ -206,86 +209,115 @@ async def search_sse_response(
     
     return EventSourceResponse(_event_generator())
 
-@app.get("/api/talk_with_the_law")
+# @app.get("/api/talk_with_the_law")
+# def talk_with_the_law(
+#     q: str = Query("", description="Search query"),
+#     page: int = Query(1, description="Page number"),
+#     per_page: int = Query(20, description="Items per page"),
+#     client_id: str = Depends(search_history.get_or_create_client_id),
+# ):
+#     """
+#     API endpoint to interact with the law using a natural language query.
+    
+#     This endpoint allows users to ask questions about the law and receive
+#     responses based on the underlying legal documents. It uses a language
+#     model to interpret the query and generate a response.
+    
+#     Args:
+#         q: The natural language query string
+#         page: The page number to retrieve
+#         per_page: The number of results per page
+#         client_id: Client identifier for search history tracking
+        
+#     Returns:
+#         JSONResponse: The generated response from the language model
+        
+#     Example:
+#         ```
+#         GET /api/talk_with_the_law?q=What are the zoning laws in California?
+#         ```
+#     """
+#     llm = LLM()
+#     response = llm.generate_response(q)
+#     return JSONResponse(content=response)
+
+# # Search history endpoints
+# @app.get("/api/search-history", response_model=search_history.SearchHistoryResponse)
+# async def get_search_history(
+#     page: int = Query(1, description="Page number", ge=1),
+#     per_page: int = Query(10, description="Items per page", ge=1, le=50),
+#     client_id: str = Depends(search_history.get_or_create_client_id)
+# ):
+#     """
+#     Get the search history for the current user.
+    
+#     This endpoint retrieves a paginated list of the user's previous searches.
+#     The user is identified by a client ID stored in cookies.
+    
+#     Args:
+#         page: The page number to retrieve (1-based)
+#         per_page: The number of entries per page
+#         client_id: The client identifier from cookies
+        
+#     Returns:
+#         SearchHistoryResponse: Paginated search history entries
+        
+#     Example:
+#         ```
+#         GET /api/search-history?page=1&per_page=10
+#         ```
+#     """
+#     return await search_history.get_history(page, per_page, client_id)
 
 
-# Search history endpoints
-@app.get("/api/search-history", response_model=search_history.SearchHistoryResponse)
-async def get_search_history(
-    page: int = Query(1, description="Page number", ge=1),
-    per_page: int = Query(10, description="Items per page", ge=1, le=50),
-    client_id: str = Depends(search_history.get_or_create_client_id)
-):
-    """
-    Get the search history for the current user.
+# @app.delete("/api/search-history/{search_id}", response_model=search_history.DeleteHistoryResponse)
+# async def delete_search_history_entry(
+#     search_id: int,
+#     client_id: str = Depends(search_history.get_or_create_client_id)
+# ):
+#     """
+#     Delete a specific search history entry.
     
-    This endpoint retrieves a paginated list of the user's previous searches.
-    The user is identified by a client ID stored in cookies.
+#     This endpoint removes a single entry from the user's search history.
+#     The user is identified by a client ID stored in cookies.
     
-    Args:
-        page: The page number to retrieve (1-based)
-        per_page: The number of entries per page
-        client_id: The client identifier from cookies
+#     Args:
+#         search_id: The ID of the search history entry to delete
+#         client_id: The client identifier from cookies
         
-    Returns:
-        SearchHistoryResponse: Paginated search history entries
+#     Returns:
+#         DeleteHistoryResponse: Result of the deletion operation
         
-    Example:
-        ```
-        GET /api/search-history?page=1&per_page=10
-        ```
-    """
-    return await search_history.get_history(page, per_page, client_id)
+#     Example:
+#         ```
+#         DELETE /api/search-history/42
+#         ```
+#     """
+#     return await search_history.delete_history_entry(search_id, client_id)
 
 
-@app.delete("/api/search-history/{search_id}", response_model=search_history.DeleteHistoryResponse)
-async def delete_search_history_entry(
-    search_id: int,
-    client_id: str = Depends(search_history.get_or_create_client_id)
-):
-    """
-    Delete a specific search history entry.
+# @app.delete("/api/search-history", response_model=search_history.DeleteHistoryResponse)
+# async def clear_search_history(
+#     client_id: str = Depends(search_history.get_or_create_client_id)
+# ):
+#     """
+#     Clear all search history for the current user.
     
-    This endpoint removes a single entry from the user's search history.
-    The user is identified by a client ID stored in cookies.
+#     This endpoint removes all entries from the user's search history.
+#     The user is identified by a client ID stored in cookies.
     
-    Args:
-        search_id: The ID of the search history entry to delete
-        client_id: The client identifier from cookies
+#     Args:
+#         client_id: The client identifier from cookies
         
-    Returns:
-        DeleteHistoryResponse: Result of the deletion operation
+#     Returns:
+#         DeleteHistoryResponse: Result of the clearing operation
         
-    Example:
-        ```
-        DELETE /api/search-history/42
-        ```
-    """
-    return await search_history.delete_history_entry(search_id, client_id)
-
-
-@app.delete("/api/search-history", response_model=search_history.DeleteHistoryResponse)
-async def clear_search_history(
-    client_id: str = Depends(search_history.get_or_create_client_id)
-):
-    """
-    Clear all search history for the current user.
-    
-    This endpoint removes all entries from the user's search history.
-    The user is identified by a client ID stored in cookies.
-    
-    Args:
-        client_id: The client identifier from cookies
-        
-    Returns:
-        DeleteHistoryResponse: Result of the clearing operation
-        
-    Example:
-        ```
-        DELETE /api/search-history
-        ```
-    """
-    return await search_history.clear_history(client_id)
+#     Example:
+#         ```
+#         DELETE /api/search-history
+#         ```
+#     """
+#     return await search_history.clear_history(client_id)
 
 
 @app.get("/api/law/{cid}", response_model=Union[LawItem, ErrorResponse])
@@ -353,5 +385,6 @@ if __name__ == '__main__':
     try:
         uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)
     finally:
+        READ_ONLY_DB.exit()
         logger.info("Server stopped.")
         sys.exit(0)

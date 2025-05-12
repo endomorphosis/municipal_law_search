@@ -3,14 +3,17 @@
 Initialize singleton for LLM.
 """
 import os
+import sys
 from typing import TypeVar
 
+sys.path.append("..")  # Add the parent directory to the path
 
-from app import configs
-from app import logger
-from app.api.llm.async_interface import AsyncLLMInterface
-from app.api.llm.embeddings_utils import EmbeddingsManager
-from app.api.llm.dependencies.async_openai_client import AsyncOpenAIClient
+
+from logger import logger
+from configs import configs
+from api_.llm_.async_interface import AsyncLLMInterface
+from api_.llm_.embeddings_utils import EmbeddingsManager
+from api_.llm_.dependencies.async_openai_client import AsyncOpenAIClient
 
 LlmClient = TypeVar("LlmClient")
 

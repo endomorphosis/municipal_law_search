@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures as cf
+import gc
 import itertools
 from typing import Any, AsyncGenerator, Callable, Container, Coroutine, Generator, Optional
 
@@ -8,7 +9,26 @@ import psutil
 import tqdm
 
 
-from app import logger
+from logger import logger
+
+def _garbage_collector_pbar_and_remaining_futures(
+                            pbar: tqdm.tqdm = None, 
+                            futures: dict = None
+                            ) -> None:
+
+    # Close the progress bar, then delete it.
+    if isinstance(pbar, tqdm.tqdm):
+        pbar.close()
+        del pbar
+
+    # Force cleanup of any remaining futures
+    if isinstance(futures, dict):
+        futures.clear()
+        del futures
+
+    # Call the garbage collector.
+    gc.collect()
+
 
 
 def run_in_process_pool(
@@ -61,39 +81,34 @@ def run_in_process_pool(
     # Make sure we get a consistent iterator throughout, rather than
     # getting the first element repeatedly.
     func_inputs = iter(inputs)
+    pbar = tqdm.tqdm(total=len(inputs), leave=False)
 
     try:
-        with tqdm.tqdm(total=len(inputs)) as pbar:
-            with cf.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        with cf.ProcessPoolExecutor(max_workers=max_workers) as executor:
 
-                # Submit the initial batch of futures.
-                futures = {
-                    executor.submit(func, input): input # For islice, see: https://www.geeksforgeeks.org/python-itertools-islice/
-                    for input in itertools.islice(func_inputs, max_concurrency)
-                }
+            # Submit the initial batch of futures.
+            futures = {
+                executor.submit(func, input): input # For islice, see: https://www.geeksforgeeks.org/python-itertools-islice/
+                for input in itertools.islice(func_inputs, max_concurrency)
+            }
 
-                while futures:
-                    done, _ = cf.wait(
-                        futures, return_when=cf.FIRST_COMPLETED
-                    )
+            while futures:
+                done, _ = cf.wait(
+                    futures, return_when=cf.FIRST_COMPLETED
+                )
 
-                    # Yield the results of the completed futures.
-                    for fut in done:
-                        original_input = futures.pop(fut)
-                        pbar.update(1)
-                        yield original_input, fut.result()
+                # Yield the results of the completed futures.
+                for fut in done:
+                    original_input = futures.pop(fut)
+                    pbar.update(1)
+                    yield original_input, fut.result()
 
-                    # Schedule the next set of futures.
-                    for input in itertools.islice(func_inputs, len(done)):
-                        fut = executor.submit(func, input)
-                        futures[fut] = input
+                # Schedule the next set of futures.
+                for input in itertools.islice(func_inputs, len(done)):
+                    fut = executor.submit(func, input)
+                    futures[fut] = input
     finally:
-        # Force cleanup of any remaining futures
-        futures.clear()
-        # Make sure to garbage collect any remaining futures
-        import gc
-        gc.collect()
-
+        _garbage_collector_pbar_and_remaining_futures(pbar, futures)
 
 async def async_run_in_process_pool(
         func: Callable | Coroutine, 
@@ -150,43 +165,42 @@ async def async_run_in_process_pool(
     func_inputs = iter(inputs)
     #print("inputs: ", inputs)
 
+    # Make sure we don't have unbound variables.
+    pbar = tqdm.tqdm(total=len(inputs), leave=False)
+    futures = {}
+
     try:
-        with tqdm.tqdm(total=len(inputs)) as pbar:
-            with cf.ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Submit the initial batch of futures
-                futures = {
-                    asyncio.wrap_future(
+        with cf.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit the initial batch of futures
+            futures = {
+                asyncio.wrap_future(
+                    executor.submit(func, input), 
+                    loop=asyncio.get_event_loop() # Separate event loop for each process.
+                ): input 
+                for input in itertools.islice(func_inputs, max_concurrency)
+            }
+
+            # Process futures as they complete
+            while futures:
+                # Wait for the first future to complete
+                done, _ = await asyncio.wait(
+                    futures.keys(), return_when=asyncio.FIRST_COMPLETED
+                )
+
+                # Process completed futures
+                for fut in done:
+                    #print(f"result: {fut}")
+                    original_input = futures.pop(fut)
+                    pbar.update(1)
+                    output = fut.result() if fut is not None else None
+                    yield original_input, output
+
+                # Schedule the next set of futures
+                for input in itertools.islice(func_inputs, len(done)):
+                    async_future = asyncio.wrap_future(
                         executor.submit(func, input), 
-                        loop=asyncio.get_event_loop() # Separate event loop for each process.
-                    ): input 
-                    for input in itertools.islice(func_inputs, max_concurrency)
-                }
-
-                # Process futures as they complete
-                while futures:
-                    # Wait for the first future to complete
-                    done, _ = await asyncio.wait(
-                        futures.keys(), return_when=asyncio.FIRST_COMPLETED
+                        loop=asyncio.get_event_loop()
                     )
-
-                    # Process completed futures
-                    for fut in done:
-                        #print(f"result: {fut}")
-                        original_input = futures.pop(fut)
-                        pbar.update(1)
-                        output = fut.result() if fut is not None else None
-                        yield original_input, output
-
-                    # Schedule the next set of futures
-                    for input in itertools.islice(func_inputs, len(done)):
-                        async_future = asyncio.wrap_future(
-                            executor.submit(func, input), 
-                            loop=asyncio.get_event_loop()
-                        )
-                        futures[async_future] = input
+                    futures[async_future] = input
     finally:
-        # Force cleanup of any remaining futures
-        futures.clear()
-        # Make sure to garbage collect any remaining futures
-        import gc
-        gc.collect()
+        _garbage_collector_pbar_and_remaining_futures(pbar, futures)

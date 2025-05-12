@@ -2,7 +2,8 @@ import numpy as np
 import torch
 
 
-from app import logger, configs
+from logger import logger 
+from configs import configs
 
 
 def _torch_cosine_similarity(x: list[float], y: list[float]) -> np.float64:

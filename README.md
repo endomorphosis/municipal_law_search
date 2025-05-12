@@ -4,3 +4,7 @@
 
 ## Overview
 A natural language search engine for American municipal and county law.
+
+## Features
+
+- Search for laws by keywords, phrases, or topics.

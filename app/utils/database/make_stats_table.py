@@ -6,7 +6,7 @@ This module provides functionality to create a database table for
 recording statistics about search operations, such as execution time.
 """
 import duckdb
-from app import configs
+from configs import configs
 
 
 def make_stats_table() -> None:

@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-class CitationsRow(BaseModel):
+class CitationRow(BaseModel):
     """
     A Pydantic model representing a row in the 'citations' table in citations.db and american_law.db.
     """

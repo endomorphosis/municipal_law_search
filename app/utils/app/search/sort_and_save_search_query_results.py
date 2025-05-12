@@ -5,15 +5,12 @@ This module provides functions for organizing search results by relevance
 and caching them in the search_query table for future retrieval, which
 improves performance for repeated searches.
 """
-from typing import Literal
-
-
 import duckdb
 from pydantic import BaseModel, Field
 
 
-from app import configs 
-from app import logger
+from configs import configs 
+from logger import logger
 
 
 class _SearchQuery(BaseModel):
@@ -124,22 +121,23 @@ def sort_and_save_search_query_results(
         cids_for_top_100=','.join(top_100_cids)
     ).to_tuple()
 
-    with duckdb.connect(configs.AMERICAN_LAW_DB_PATH, read_only=False) as conn:
-        with conn.cursor() as cursor:
-            try:
-                conn.begin()
-                cursor.execute('''
-                INSERT OR REPLACE INTO search_query (
-                    search_query_cid, 
-                    search_query, 
-                    embedding, 
-                    total_results, 
-                    cids_for_top_100 
-                ) 
-                VALUES (?, ?, ?, ?, ?)
-                ''', search_query_tuple)
-                conn.commit()
-                logger.info("Saved top 100 query results to search_query table.")
-            except Exception as e:
-                logger.error(f"Error inserting into search_query table: {e}")
-                conn.rollback()
+    # TODO Make this so it doesn't need run into an IO error because of read only.
+    # with duckdb.connect(configs.AMERICAN_LAW_DB_PATH, read_only=False) as conn:
+    #     with conn.cursor() as cursor:
+    #         try:
+    #             conn.begin()
+    #             cursor.execute('''
+    #             INSERT OR REPLACE INTO search_query (
+    #                 search_query_cid, 
+    #                 search_query, 
+    #                 embedding, 
+    #                 total_results, 
+    #                 cids_for_top_100 
+    #             ) 
+    #             VALUES (?, ?, ?, ?, ?)
+    #             ''', search_query_tuple)
+    #             conn.commit()
+    #             logger.info("Saved top 100 query results to search_query table.")
+    #         except Exception as e:
+    #             logger.error(f"Error inserting into search_query table: {e}")
+    #             conn.rollback()

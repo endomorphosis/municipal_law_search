@@ -1,7 +1,7 @@
 from typing import Dict, NamedTuple
 
 
-from app.utils.database.get_db import get_html_db
+from utils.database.get_db import get_html_db
 
 
 def get_html_for_this_citation(row: Dict | NamedTuple) -> str:

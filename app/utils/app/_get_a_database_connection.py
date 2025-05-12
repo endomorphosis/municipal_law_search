@@ -7,9 +7,9 @@ with appropriate error handling for use in FastAPI routes.
 import duckdb
 from fastapi import HTTPException
 
-
-from app import logger, configs
-from app.utils.app.search.type_vars import SqlCursor
+from configs import configs
+from logger import logger
+from utils.app.search.type_vars import SqlCursor
 
 
 def get_a_database_connection() -> SqlCursor:

@@ -42,3 +42,9 @@ sse-starlette
 torch
 openpyxl
 anthropic
+
+# run_tests_and_save_results tool dependencies
+flake8>=6.0.0
+mypy>=1.0.0
+coverage >=7.8.0
+pathspec

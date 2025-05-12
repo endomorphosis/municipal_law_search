@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added comprehensive unit tests:
+  - Created test suite for Database class using unittest and mocking
+  - Implemented tests for connection pooling and resource management
+  - Added tests for transaction operations and context managers
+  - Created test suite for DuckDB implementation with in-memory database
+  - Tested all core database operations including table and index creation
+  
 - Implemented Search History feature:
   - Created `search_history` table in database with appropriate indexes
   - Added API endpoints for retrieving, deleting, and clearing search history
@@ -16,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implemented frontend UI for displaying and managing search history
   - Added client-side cookie tracking for per-user history without requiring login
   - Enabled "search again" functionality for previous searches
+  - Refactored search history functionality into class-based architecture for improved maintainability
+- Added comprehensive Database module with connection pooling:
+  - Created Database class with support for multiple database engines
+  - Added detailed usage documentation in README_DATABASE.md
+  - Implemented thread-safe connection pool with configurable size and timeout settings
+  - Added transaction context manager for simplified transaction management
+  - Created DuckDB-specific implementation for all database operations
+  - Added comprehensive unit tests for Database class and DuckDB implementation
 - Comprehensive Google-style docstrings for missing modules and functions:
   - Added module docstrings for app modules, including logger.py
   - Added docstrings for Pydantic models in schemas package (ErrorResponse, LawItem)
@@ -47,6 +62,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clarified return type annotations in several methods
 - Fixed inconsistent parameter types in several function signatures
 - Updated function return type hints to match actual return values
+- Fixed SQL parameter count mismatch in save_search_history.py causing database errors
+- Removed duplicate imports in search history utilities
+- Simplified and optimized SQL query string formatting
+- Fixed potential connection leaks by properly managing database connections with pooling
+- Added proper resource cleanup with context managers for database operations
+- Fixed thread safety issues with database access by using lock-protected connection pooling
+- Added test coverage to validate connection pool behavior and resource management
+- Fixed potential SQL injection vulnerabilities by using parameterized queries throughout
+- Ensured proper error handling with comprehensive exception testing
 
 ## [0.1.1] - 2025-04-05
 
@@ -81,6 +105,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refactored search history utilities to use object-oriented design pattern for improved maintainability:
+  - Encapsulated SQL statements into class constants for better organization and centralized management
+  - Used class methods with consistent transaction handling for database operations
+  - Added proper type hints and docstrings to all methods
+  - Implemented proper error handling with logging in all database operations
+  - Added alias functions to maintain backward compatibility with existing code
+- Implemented comprehensive Database class with connection pooling:
+  - Created a generic Database class that supports multiple database engines through dependency injection
+  - Implemented DuckDB-specific database operations in DuckDbDatabase class
+  - Added connection pooling for improved performance under high load
+  - Implemented thread-safe connection management with proper cleanup
+  - Added transaction management with automatic commit/rollback
+  - Provided comprehensive error handling and logging for all database operations
 - Migrated database layer from SQLite to DuckDB for improved performance
 - Added backward compatibility with SQLite as a fallback option
 - Updated database connection functions to support both engines

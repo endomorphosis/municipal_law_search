@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 import functools
 import os
-import sqlite3
+import sys
 import traceback
 from typing import Any, AsyncGenerator, Callable, Coroutine, TypeVar
 
@@ -16,24 +16,26 @@ import duckdb
 from fastapi import HTTPException, Query
 from pydantic import BaseModel, PositiveInt
 
+sys.path.append("..")  # Add the parent directory to the path
 
-from app import logger, configs, Configs
-from app.api.llm.async_interface import AsyncLLMInterface
+from logger import logger
+from configs import configs, Configs
 
-from app.llm import LLM
-from app.schemas.search_response import SearchResponse
-from app.utils.app.search.format_initial_sql_return_from_search import format_initial_sql_return_from_search
-from app.utils.app.search.get_embedding_and_calculate_cosine_similarity import (
+
+from llm import LLM, AsyncLLMInterface
+from schemas.search_response import SearchResponse
+from utils.app.search.format_initial_sql_return_from_search import format_initial_sql_return_from_search
+from utils.app.search.get_embedding_and_calculate_cosine_similarity import (
     get_embedding_and_calculate_cosine_similarity
 )
-from app.utils.app.get_html_for_this_citation import get_html_for_this_citation
-from app.utils.app._get_a_database_connection import get_a_database_connection
+from utils.app.get_html_for_this_citation import get_html_for_this_citation
+from utils.app._get_a_database_connection import get_a_database_connection
 
-from app.utils.common import get_cid
-from app.utils.common.run_in_process_pool import async_run_in_process_pool
+from utils.common import get_cid
+from utils.common.run_in_process_pool import async_run_in_process_pool
 
 
-from app.utils.app.search import (
+from utils.app.search import (
     close_database_connection,
     close_database_cursor,
     estimate_the_total_count_without_pagination,
@@ -132,7 +134,7 @@ class SearchFunction:
 
         # Get the classes functions.
         ## Sync
-        self._make_search_query_table_if_it_doesnt_exist:    Callable = self.resources['make_search_query_table_if_it_doesnt_exist']
+        #self._make_search_query_table_if_it_doesnt_exist:    Callable = self.resources['make_search_query_table_if_it_doesnt_exist']
         self._get_a_database_connection:                     Callable = self.resources['get_a_database_connection']
         self._get_database_cursor:                           Callable = self.resources['get_database_cursor']
         self._get_data_from_sql:                             Callable = self.resources['get_data_from_sql']
@@ -154,7 +156,7 @@ class SearchFunction:
         self._LLMSqlOutput:                                  BaseModel  = self.resources['LLMSqlOutput'] 
 
         # Run these start up functions
-        self._make_search_query_table_if_it_doesnt_exist()
+        #self._make_search_query_table_if_it_doesnt_exist()
 
 
         self.class_connection = self._get_a_database_connection()
@@ -297,7 +299,8 @@ class SearchFunction:
             list[dict]: Updated cumulative results after each batch of processing
         """
         # Get the embedding CIDs from the initial results, piece-meal.
-        for embedding_id_list in get_embedding_cids(initial_results, batch_size=configs.SEARCH_EMBEDDING_BATCH_SIZE):
+        # NOTE TESTING at batch_size=1000
+        for embedding_id_list in get_embedding_cids(initial_results, batch_size=1000):
             pull_list = []
             embedding_id_list: list[dict[str, str]]
 
@@ -579,7 +582,7 @@ class SearchFunction:
         if cached_results:
             # If we have cached results and a client ID, save to search history
             if client_id:
-                from app.utils.app.search.save_search_history import save_search_history
+                from utils.app.search.save_search_history import save_search_history
                 save_search_history(
                     search_query_cid=self.search_query_cid,
                     search_query=self.search_query,
@@ -616,7 +619,7 @@ class SearchFunction:
         
         # Save search to history if client_id is provided and we have results
         if client_id and self.total > 0:
-            from app.utils.app.search.save_search_history import save_search_history
+            from utils.app.search.save_search_history import save_search_history
             save_search_history(
                 search_query_cid=self.search_query_cid,
                 search_query=self.search_query,

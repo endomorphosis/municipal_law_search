@@ -2,7 +2,7 @@ import re
 from typing import Optional
 
 
-from app import logger
+from logger import logger
 
 
 async def validate_and_correct_sql_query_string(sql_query: str, fix_broken_queries: bool = True) -> Optional[str]:

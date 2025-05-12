@@ -1,11 +1,11 @@
-from typing import Optional, Union
+from typing import Optional
 
 
 from pydantic import BaseModel
 
 
-from app import logger
-from app.api.llm.interface import LLMInterface
+from logger import logger
+from api_.llm_.interface import LLMInterface
 
 
 async def turn_english_into_sql(

@@ -2,7 +2,7 @@ import logging
 import sys
 
 
-from app import configs
+from configs import configs
 
 
 def exception_handler(exception_type, exception, traceback, debug_hook=sys.excepthook):

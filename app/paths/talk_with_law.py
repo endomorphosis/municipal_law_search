@@ -5,14 +5,14 @@ from pathlib import Path
 from typing import Callable
 
 
-from app import configs, Configs
+from configs import configs, Configs
 
 
-from app.llm import LLM
-from app.api.llm.async_interface import AsyncLLMInterface
+from llm import LLM
+from api_.llm_.async_interface import AsyncLLMInterface
 
 
-class TalkWithLaw:
+class TalkWithLawFunction:
     """
     Use an LLM with GraphRAG to answer questions about American municipal law.
     

@@ -1,4 +1,5 @@
 from itertools import batched
+import time
 from typing import Generator
 
 
@@ -6,8 +7,8 @@ import duckdb
 import tqdm
 
 
-from app import logger
-from app.utils.database.get_db import get_embeddings_db
+from logger import logger
+from utils.database.get_db import get_embeddings_db
 
 
 def get_embedding_cids(
@@ -35,6 +36,7 @@ def get_embedding_cids(
     embeddings_conn: duckdb.DuckDBPyConnection = get_embeddings_db(read_only=True)
     embeddings_cursor = embeddings_conn.cursor()
 
+
     if initial_results:
         for batch in tqdm.tqdm(batched(initial_results, batch_size)):
 
@@ -57,6 +59,7 @@ def get_embedding_cids(
             except IndexError:
                 #logger.debug(f"No embedding found for the given CID {row['cid']}.")
                 continue
+            logger.debug(f"Found {len(embedding_id_list)} embedding IDs for the given CIDs.")
             yield embedding_id_list
     else:
         logger.debug("No initial results provided. Returning an empty list.")

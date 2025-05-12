@@ -69,3 +69,4 @@ missing_data.csv
 # testing
 *.test
 .pytest_cache/
+**/test_reports/
