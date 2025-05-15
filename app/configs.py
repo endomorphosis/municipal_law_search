@@ -44,16 +44,26 @@ class Configs(BaseModel):
 
     Attributes:
         OPENAI_API_KEY (SecretStr): Authentication key for OpenAI API.
+        HUGGING_FACE_USER_ACCESS_TOKEN (SecretStr): Authentication token for Hugging Face.
         ROOT_DIR (DirectoryPath): Root directory of the project.
+        APP_DIR (DirectoryPath): Application directory of the project.
         AMERICAN_LAW_DATA_DIR (DirectoryPath): Directory containing the American Law data.
         PARQUET_FILES_DIR (DirectoryPath): Directory containing parquet files.
         AMERICAN_LAW_DB_PATH (DirectoryPath): Path to the American Law database file.
+        SEARCH_HISTORY_DB_PATH (DirectoryPath): Path to the search history database file.
         PROMPTS_DIR (DirectoryPath): Directory containing LLM prompt templates.
         HUGGING_FACE_REPO_ID (str): Repository ID on Hugging Face for uploading.
         OPENAI_MODEL (str): OpenAI model to use for processing.
         OPENAI_EMBEDDING_MODEL (str): OpenAI model to use for text embeddings.
         LOG_LEVEL (int): Logging level for the application (10 = DEBUG).
         SIMILARITY_SCORE_THRESHOLD (float): Threshold for cosine similarity scoring.
+        SEARCH_EMBEDDING_BATCH_SIZE (int): Batch size for embedding searches.
+        DATABASE_CONNECTION_POOL_SIZE (int): Maximum number of database connections in the pool.
+        DATABASE_CONNECTION_TIMEOUT (int): Timeout in seconds for database connections.
+        DATABASE_CONNECTION_MAX_OVERFLOW (int): Maximum number of connections that can be created beyond the pool size.
+        DATABASE_CONNECTION_MAX_AGE (int): Maximum age in seconds for a database connection.
+        TOP_K (int): Number of top results to return in searches.
+        USE_GPU_FOR_COSINE_SIMILARITY (str): Whether to use GPU for cosine similarity calculations.
     """
     OPENAI_API_KEY:                   SecretStr = os.environ.get("OPENAI_API_KEY")
     HUGGING_FACE_USER_ACCESS_TOKEN:   SecretStr = None

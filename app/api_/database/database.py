@@ -12,7 +12,7 @@ from queue import Queue
 from threading import Lock
 import time
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
 
 
 from api_.database.dependencies.duckdb_database import DuckDbDatabase
@@ -23,27 +23,43 @@ from logger import logger
 C = TypeVar('C') # 'C' for connection type
 S = TypeVar('S') # 'S' for session type
 
+# try_except.py
+import asyncio
+import inspect
+from logger import logger
+
+
 def try_except(func: Callable = lambda x: x, 
                raise_: bool = None,
                exception_type: Exception = Exception, 
                msg: str = "An unexpected exception occurred",
+               default_return: Optional[Any] = None
                ) -> Callable:
     """
     Decorator to handle exceptions in a function.
-    
+
     Args:
+        raise_: Whether to re-raise the exception after logging.
+            NOTE: This must be manually set to True or False. 
+                This reduces the risk of accidentally raising or passing an exception.
         func: The function to decorate
-        exception_type: The type of exception to catch
+        exceptiontype: The type of exception to catch
         msg: The message to log on exception
-        raise_: Whether to re-raise the exception after logging
-    
+        default_return: The value to return if an exception occurs. Only returned if raise_ is False
+
     Returns:
         A wrapped function that handles exceptions
     """
-    def decorator(func: Callable) -> Callable:
+
+    def decorator(func: Callable | Coroutine) -> Callable | Coroutine:
+
+        # Check if the function is asynchronous
+        async_ = inspect.iscoroutinefunction(func)
+
+        @wraps(func)
         def wrapper(*args, **kwargs):
             if raise_ is None:
-                raise ValueError("raise_ must be set to True or False")
+                raise ValueError("raise must be set to True or False")
             errored = None
             try:
                 return func(*args, **kwargs)
@@ -57,7 +73,32 @@ def try_except(func: Callable = lambda x: x,
                     logger.debug(f"Function {func.__name__} failed with error: {errored}")
                     if raise_:
                         raise errored
-        return wrapper
+                    else:
+                        if default_return is not None:
+                            return default_return
+
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            if raise_ is None:
+                raise ValueError("raise_ must be set to True or False")
+            errored = None
+            try:
+                return await func(*args, **kwargs)
+            except exception_type as e:
+                logger.exception(f"{msg}: {e}", stacklevel=2) # Raise the stack level up to the caller
+                errored = e
+            finally:
+                if errored is None:
+                    logger.debug(f"Function {func.__name__} completed successfully.")
+                else:
+                    logger.debug(f"Function {func.__name__} failed with error: {errored}")
+                    if raise_:
+                        raise errored
+                    else:
+                        if default_return is not None:
+                            return default_return
+
+        return async_wrapper if async_ else wrapper
     return decorator
 
 
@@ -72,8 +113,11 @@ class Database:
     Attributes:
         configs: Configuration settings for the database
         resources: Dictionary of callable functions for database operations
-        connection_pool: Queue of available database connections
-        pool_lock: Thread lock for connection pool access
+        _connection_pool: Queue of available database connections
+        _pool_lock: Thread lock for connection pool access
+        _db_type: Type of database being used
+        _read_only: Whether the database is in read-only mode
+        _db_path: Path to the database file
     """
 
     def __init__(self, 
@@ -84,7 +128,7 @@ class Database:
         Initialize the database manager.
         
         Args:
-            configs: Configuration settings for the database
+            configs: Pydantic class of configuration settings for the database
             resources: Dictionary of callable functions for database operations
         """
         self.configs = configs
@@ -137,7 +181,7 @@ class Database:
                     conn_info = self._connection_pool.get(block=False)
                     self._close(conn_info['connection'])
                 except Exception as e:
-                    logger.warning(f"Error closing connection: {e}")
+                    logger.exception(f"Error closing connection: {e}")
                     continue
         logger.debug("Connection pool flushed")
 

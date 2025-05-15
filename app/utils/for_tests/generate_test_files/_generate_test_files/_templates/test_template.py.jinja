@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Test file for {{ module_info.module_name }}.py
+Generated automatically by test generator at {{date.today()}}
+"""
+import unittest
+from unittest import mock, MagicMock, patch
+from unittest.mock import AsyncMock
+from unittest.async_test import IsolatedAsyncioTestCase
+{% for import_stmt in module_info.imports %}
+{{ import_stmt }}
+{% endfor %}
+
+class TestFunctions{{ module_info.module_name }}(unittest.TestCase):
+    """Tests for all standalone functions in {{ module_info.module_name }}.py"""
+
+    def setUp(self):
+        """Set up test class"""
+        pass
+
+    def tearDown(self):
+        """Tear down test class"""
+        pass
+
+    {% if module_info.functions %}
+    # Test functions
+    {% for function in module_info.functions %}
+    def test_{{ function.name }}(self):
+        """Basic unit tests for {{ function.name }} function"""
+        # TODO: Write test for {{ function.name }}
+        {% if function.docstring %}
+        # Docstring: {{ function.docstring }}
+        {% for line in function.docstring %}
+        # {{ line }}
+        {% endfor %}
+        {% endif %}
+        {% if function.args %}
+        # Function takes args: {{ function.args|join(', ') }}
+        {% endif %}
+        {% if function.returns %}
+        # Function returns: {{ function.returns }}
+        {% endif %}
+        {% if function.decorators %}
+        # Decorators: {{ function.decorators|join(', ') }}
+        {% endif %}
+        raise NotImplementedError("Test for {{ function.name }} has not been written.")  # Placeholder assertion
+    {% endfor %}
+    {% endif %}
+
+class TestAsyncFunctions{{ module_info.module_name }}(IsolatedAsyncioTestCase):
+    """Tests for all standalone async functions in {{ module_info.module_name }} module"""
+
+    def setUp(self):
+        """Set up test class"""
+        pass
+
+    def tearDown(self):
+        """Tear down test class"""
+        pass
+
+    {% if module_info.coroutines %}
+    # Test coroutines
+    {% for coroutine in module_info.coroutines %}
+    async def test_{{ coroutine.name }}():
+        """Test for {{ coroutine.name }} coroutine"""
+        # TODO: Write test for {{ coroutine.name }}
+        {% if coroutine.args %}
+        # Coroutine takes args: {{ coroutine.args|join(', ') }}
+        {% endif %}
+                # TODO: Write test for {{ function.name }}
+        {% if function.docstring %}
+        # Docstring: {{ function.docstring }}
+        {% endif %}
+        {% if function.args %}
+        # Function takes args: {{ function.args|join(', ') }}
+        {% endif %}
+        {% if function.returns %}
+        # Function returns: {{ function.returns }}
+        {% endif %}
+        {% if function.decorators %}
+        # Decorators: {{ function.decorators|join(', ') }}
+        {% endif %}
+        raise NotImplementedError("Test for {{ function.name }} has not been written.")  # Placeholder assertion
+    {% endfor %}
+    {% endif %}
+
+{% if module_info.classes %}
+# Test classes
+{% for class_info in module_info.classes %}
+class Test{{ class_info.name }}:
+    """Tests for the {{ class_info.name }} class"""
+    def setUp(self):
+        """Set up test class"""
+        pass
+
+    def tearDown(self):
+        """Tear down test class"""
+        pass
+
+    {% if class_info.docstring %}
+    def {{ class_info.name|lower }}_instance(self):
+        """Create a test instance of {{ class_info.name }}"""
+        # TODO: Initialize with appropriate test parameters
+        return {{ class_info.name }}()
+    
+    {% for method in class_info.methods %}
+    def test_{{ method.name }}(self, {{ class_info.name|lower }}_instance):
+        """Test for {{ class_info.name }}.{{ method.name }}"""
+        # TODO: Write test for {{ method.name }}
+        assert True  # Placeholder assertion
+    {% endfor %}
+{% endfor %}
+{% endif %}
+
+if __name__ == "__main__":
+    raise NotImplementedError("Tests for {{ module_info.module_name }} have not been written.")  # Placeholder assertion
+    unittest.main()
