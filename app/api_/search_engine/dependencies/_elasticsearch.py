@@ -15,13 +15,13 @@ resources = {
 }
 from logger import logger
 from elasticsearch import Elasticsearch, NotFoundError, RequestError, ConnectionError, TransportError
+from elastic_transport import ObjectApiResponse
 
 
 class ElasticsearchClient:
 
     def __init__(self, hosts=None):
         self.client = Elasticsearch(hosts=hosts or ["http://localhost:9200"])
-
 
     def query_parser(self, query: str, *args, **kwargs) -> str:
         """
@@ -150,7 +150,7 @@ class ElasticsearchClient:
         # Execute search against the specified index
         index = kwargs.get("index", "_all")
         try:
-            response = self.client.search(index=index, body=search_body)
+            response: ObjectApiResponse = self.client.search(index=index, body=search_body)
             results = response.get("hits", {}).get("hits", [])
             
             # Apply ranking if needed
