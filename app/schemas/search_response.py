@@ -19,3 +19,13 @@ class SearchResponse(BaseModel):
     page: int
     per_page: int
     total_pages: int
+
+    def order_by_cosine_similarity_score(self) -> None:
+        """
+        Sorts the search results by cosine similarity score in descending order.
+
+        Returns:
+            list[dict[str, Any]]: Sorted list of search results.
+        """
+        _sorted_results = sorted(self.results, key=lambda x: x.get('cosine_similarity_score', 0), reverse=True)
+        self.results = _sorted_results

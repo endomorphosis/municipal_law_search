@@ -1,6 +1,6 @@
 import ast
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Callable, Self
 
 
 from pydantic import BaseModel, DirectoryPath, Field, ValidationError
@@ -234,6 +234,48 @@ class _AstFileParser:
                     continue
         self.module_info["classes"][node.name] = class_info
 
+    def extract_exceptions_from(self, node: ast.ExceptHandler) -> None:
+        """Extract exception information from the AST node."""
+        raise NotImplementedError("Exception extraction not implemented yet.")
+
+    def extract_resources_and_configs_from(self, node: ast.Assign) -> None:
+        """
+        Extract the resources dictionary and configs pydantic base model from a file.
+        The return values should be the last time they are changed in the file.
+
+        Since many classes work via dependency injection, we need to extract the
+        resources and configs from the file, so that we can use or mock them in tests.
+
+        Args:
+            node (ast.Assign): The AST node representing assignments.
+        """
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                match target.id:
+                    case 'configs':
+                        # Get all the values of the attributes of the configs pydantic base model.
+                        # If there are any nested attributes, they should be included as well.
+
+                        # Try to extract the actual configuration attributes if it's a variable assignment
+                        try:
+                            if isinstance(node.value, ast.Name):
+                                # It's referencing an existing variable
+                                self.module_info['configs_reference'] = node.value.id
+                            elif isinstance(node.value, (ast.Dict, ast.Call)):
+                                # It's either a dictionary or a model instantiation
+                                self.module_info['configs_type'] = 'direct_assignment'
+                        except Exception as e:
+                            logger.warning(f"Failed to extract configs details: {str(e)}")
+
+                    case 'resources' if isinstance(node.value, ast.Dict):
+                        # Get the keys and values of the resources dictionary.
+                        self.module_info['resources'] = {
+                            ast.unparse(key): ast.unparse(value)
+                            for key, value in zip(node.value.keys, node.value.values)
+                        }
+                    case _:
+                        pass  # Ignore other assignments
+
 
 def parse_file(file_path: str) -> dict[str, Any]:
     """
@@ -248,6 +290,13 @@ def parse_file(file_path: str) -> dict[str, Any]:
     # Initialize the parser
     parser = _AstFileParser(file_path)
 
+    # Get any variables called 'configs' or 'resources' that are not defined in classes or functions.
+    # It should be the last time they are changed in the file.
+    
+    # Track assignments to 'configs' and 'resources' at module level
+
+
+
     try:
         # Parse the file content into an AST, then iterate through all nodes.
         for node in parser.nodes:
@@ -260,6 +309,9 @@ def parse_file(file_path: str) -> dict[str, Any]:
 
                 case ast.ClassDef() if node.parent_field == "body":
                     parser.extract_classes_from(node)
+
+                case ast.Assign():
+                    parser.extract_resources_and_configs_from(node)
 
                 case _:
                     logger.warning(f"Unknown AST node: {ast.unparse(node)}")

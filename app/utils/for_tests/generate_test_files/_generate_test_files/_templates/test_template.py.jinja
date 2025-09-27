@@ -29,6 +29,7 @@ class TestFunctions{{ module_info.module_name }}(unittest.TestCase):
     def test_{{ function.name }}(self):
         """Basic unit tests for {{ function.name }} function"""
         # TODO: Write test for {{ function.name }}
+        raise NotImplementedError("Test for {{ function.name }} has not been written.")  # Placeholder assertion
         {% if function.docstring %}
         # Docstring: {{ function.docstring }}
         {% for line in function.docstring %}
@@ -44,7 +45,33 @@ class TestFunctions{{ module_info.module_name }}(unittest.TestCase):
         {% if function.decorators %}
         # Decorators: {{ function.decorators|join(', ') }}
         {% endif %}
-        raise NotImplementedError("Test for {{ function.name }} has not been written.")  # Placeholder assertion
+
+        # This function has {{ exceptions|length }} exception(s):
+        {% for exception in exceptions %}
+        # Line {{ exception.line_no }}: {{ exception.name }}
+        {% if exception.message %}
+        # Message: "{{ exception.message }}"
+        {% endif %}
+        {% if exception.cause %}# Caused by: {{ exception.cause }}
+        {% endif %}
+        {% if exception.is_handled %}# This exception is handled in a try-except block
+        {% endif %}
+
+        # Verify that {{ exception.name }} is raised with appropriate message
+        with self.assertRaises({{ exception.name }}) as context:
+            # TODO: Set up conditions to trigger this exception
+            # Call the function with arguments that will trigger the exception
+            pass
+
+        {% if exception.message %}
+        # Verify the exception message
+        self.assertIn("{{ exception.message }}", str(context.exception))
+        {% endif %}
+        {% endfor %}
+        {% else %}
+        # No exceptions to test
+        pass
+        {% endif %}
     {% endfor %}
     {% endif %}
 
@@ -53,7 +80,22 @@ class TestAsyncFunctions{{ module_info.module_name }}(IsolatedAsyncioTestCase):
 
     def setUp(self):
         """Set up test class"""
-        pass
+        {% if module_info.configs %}
+        self.mock_configs = MagicMock(wraps={{ module_info.configs }})
+        {% endif %}
+
+        {% if module_info.resources %}
+        {% raw %}
+        self.mock_resources = {
+        {% endraw %}
+            {% for resource_name, resource_callable in module_info.resources.items() %}
+            "{{ resource_name }}": MagicMock(wraps={{ resource_callable }}),
+            {% endfor %}
+        {% raw %}
+        }
+        {% endraw %}
+        {% for function in module_info.functions %}
+        {% endif %}
 
     def tearDown(self):
         """Tear down test class"""

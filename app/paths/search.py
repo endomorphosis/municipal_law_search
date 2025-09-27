@@ -6,10 +6,11 @@ from __future__ import annotations
 
 from datetime import datetime
 import functools
+import logging
 import os
 import sys
 import traceback
-from typing import Any, AsyncGenerator, Callable, Coroutine, TypeVar
+from typing import Any, AsyncGenerator, Callable, Coroutine, Optional, TypeVar
 
 
 import duckdb
@@ -18,7 +19,7 @@ from pydantic import BaseModel, PositiveInt
 
 sys.path.append("..")  # Add the parent directory to the path
 
-from logger import logger
+from logger import logger as  module_logger
 from configs import configs, Configs
 
 
@@ -115,10 +116,14 @@ class SearchFunction:
 
         self.search_query: str = search_query.lower()
         self.llm: AsyncLLMInterface = self.resources['LLM']
+        self.logger: logging.Logger = self.resources['logger']
+
         if not self.search_query:
             raise ValueError("Search query cannot be None or empty.")
         if not self.llm:
             raise ValueError("LLM cannot be None.")
+        if not self.logger:
+            raise ValueError("Logger cannot be None.")
 
         # Define initial variable states
         self.query_table_embedding_cids: list[str]    = []
@@ -134,7 +139,7 @@ class SearchFunction:
 
         # Get the classes functions.
         ## Sync
-        #self._make_search_query_table_if_it_doesnt_exist:    Callable = self.resources['make_search_query_table_if_it_doesnt_exist']
+        #self._make_search_query_table_if_it_doesnt_exist:   Callable = self.resources['make_search_query_table_if_it_doesnt_exist']
         self._get_a_database_connection:                     Callable = self.resources['get_a_database_connection']
         self._get_database_cursor:                           Callable = self.resources['get_database_cursor']
         self._get_data_from_sql:                             Callable = self.resources['get_data_from_sql']
@@ -235,7 +240,7 @@ class SearchFunction:
         self._estimate_the_total_count_without_pagination(self.class_cursor, count_query)
         self.class_cursor.execute(count_query)
         total: int = self.class_cursor.fetchone()[0]
-        logger.info(f"Total results from SQL query: {total}")
+        self.logger.info(f"Total results from SQL query: {total}")
         return total
 
 
@@ -256,11 +261,11 @@ class SearchFunction:
         self.class_cursor.execute(sql_query)
         df_dict = self.class_cursor.fetchdf().to_dict('records')
         for row in df_dict:
-            # If the CID isn't there or if it's already in the set, continue.
+            # Skip if the CID isn't there or if it's already in the set.
             if "cid" not in row.keys() or row['cid'] in self.cid_set:
                     continue
             else:
-                logger.debug(f"Adding cid {row['cid']} to cid_set")
+                self.logger.debug(f"Adding cid {row['cid']} to cid_set")
                 self.cid_set.add(row['cid'])
 
                 initial_results: list[dict] = [
@@ -270,7 +275,12 @@ class SearchFunction:
                 return initial_results
 
 
-    async def execute_embedding_search(self, initial_results: list[dict[str, Any]], cumulative_results: list) -> AsyncGenerator[list[dict], None]:
+    async def execute_embedding_search(
+            self, 
+            initial_results: list[dict[str, Any]], 
+            cumulative_results: list,
+            batch_size: int = 1000
+            ) -> AsyncGenerator[list[dict], None]:
         """
         Performs embedding-based similarity search and retrieves content for results.
         
@@ -300,7 +310,7 @@ class SearchFunction:
         """
         # Get the embedding CIDs from the initial results, piece-meal.
         # NOTE TESTING at batch_size=1000
-        for embedding_id_list in get_embedding_cids(initial_results, batch_size=1000):
+        for embedding_id_list in get_embedding_cids(initial_results, batch_size=batch_size):
             pull_list = []
             embedding_id_list: list[dict[str, str]]
 
@@ -313,7 +323,7 @@ class SearchFunction:
 
             # Order the pull list by their cosine similarity score.
             pull_list = sorted(pull_list, key=lambda x: x[1], reverse=True)
-            #logger.debug(f"pull_list: {pull_list}: pull_list") 
+            #self.logger.debug(f"pull_list: {pull_list}: pull_list") 
             self.query_table_embedding_cids.extend(pull_list)
 
             for cid, _ in pull_list:
@@ -374,7 +384,7 @@ class SearchFunction:
                 parser=self._LLMSqlOutput
             )
         except Exception as e:
-            logger.error(f"Error in search: {e}")
+            self.logger.error(f"Error in search: {e}")
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -417,13 +427,13 @@ class SearchFunction:
                 per_page=per_page
             )
             if cached_results is not None and len(cached_results) > 0:
-                logger.info(f"Cached results found for query '{self.search_query}'.\nReturning cached results...")
+                self.logger.info(f"Cached results found for query '{self.search_query}'.\nReturning cached results...")
                 return cached_results
             else:
-                logger.debug(f"No cached results found for query '{self.search_query}'.\nPerforming full search...")
+                self.logger.debug(f"No cached results found for query '{self.search_query}'.\nPerforming full search...")
                 return None
         except Exception as e:
-            logger.error(f"Error in search: {e}")
+            self.logger.error(f"Error in search: {e}")
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -457,7 +467,9 @@ class SearchFunction:
             per_page=per_page,
             total_pages=self._calc_total_pages(self.total, per_page)
         )
-        logger.debug(f"Yielding search response...")
+        self.logger.debug(f"Sorting search response by cosine similarity score...")
+        #search_response.order_by_cosine_similarity_score()
+        self.logger.debug(f"Yielding search response...")
         return search_response.model_dump()
 
 
@@ -490,18 +502,18 @@ class SearchFunction:
         try:
             intent = await self._determine_user_intent(search_query)
         except Exception as e:
-            logger.error(f"Error determining user intent: {e}")
+            self.logger.error(f"Error determining user intent: {e}")
             raise HTTPException(status_code=400, detail="Unable to determine user intent")
 
         if intent is None:
             raise ValueError("LLM produced None as the intent.")
 
         if "FLAGGED" in intent:
-            logger.error(f"Query flagged as inappropriate: {search_query}")
+            self.logger.error(f"Query flagged as inappropriate: {search_query}")
             raise HTTPException(status_code=400, detail="Query flagged as inappropriate")
         
         if "SEARCH" not in intent:
-            logger.error(f"Query not flagged as a search: {search_query}")
+            self.logger.error(f"Query not flagged as a search: {search_query}")
             raise HTTPException(status_code=400, detail="Query not flagged as a search")
 
 
@@ -529,7 +541,7 @@ class SearchFunction:
         return (total + per_page - 1) // per_page
 
 
-    async def search(self, page: int = 1, per_page: int = 20, client_id: str = None) -> AsyncGenerator:
+    async def search(self, page: int = 1, per_page: int = 20, batch_size: int = 1000, client_id: Optional[str] = None) -> AsyncGenerator[dict, None]:
         """
         Search for citations in the database using a natural language query.
         
@@ -574,7 +586,7 @@ class SearchFunction:
             This method yields incremental updates to enable streaming results
             to the client for a more responsive user experience.
         """
-        logger.info(f"Received request for search at {datetime.now()}")
+        self.logger.info(f"Received request for search at {datetime.now()}")
  
         # Check if the query already exists in the search_query table
         # If they do, yield the cached results and return.
@@ -596,7 +608,8 @@ class SearchFunction:
             await self.figure_out_what_the_user_wants(self.search_query)
         except Exception as e:
             # If the user intent is not a search, we tell the user to try again.
-            logger.error(f"Error determining user intent: {e}")
+            # TODO Implement this
+            self.logger.error(f"Error determining user intent: {e}")
 
         sql_query = await self.turn_english_into_sql(page, per_page)
 
@@ -604,14 +617,14 @@ class SearchFunction:
         cumulative_results = []
 
         if self.total != 0:
-            logger.debug(f"self.total: {self.total}")
+            self.logger.debug(f"self.total: {self.total}")
             initial_results = self.execute_the_actual_query_with_pagination(sql_query)
             if initial_results:
                 async for cumulative_results in self.execute_embedding_search(initial_results, cumulative_results):
                     search_response = self.format_search_response(cumulative_results, page, per_page)
                     yield search_response
 
-        # NOTE we do this because duckdb only allows concurrency for read-only connections.
+        # NOTE we call close_cursor_and_connection because duckdb only allows concurrency for read-only connections.
         # TODO Create separate database for intermediate cached results.
         self.close_cursor_and_connection()
 
@@ -702,6 +715,8 @@ async def function(
     page: int = Query(1, description="Page number"),
     per_page: int = Query(20, description="Items per page"),
     client_id: str = None,
+    logger: logging.Logger = module_logger,
+    llm: AsyncLLMInterface = LLM,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """
     API endpoint for searching the American law database using natural language.
@@ -738,6 +753,8 @@ async def function(
         GET /api/search?q=zoning laws in California&page=1&per_page=20
         ```
     """
+    resources['logger'] = logger
+    resources['LLM'] = llm
     async with SearchFunction(search_query=q, resources=resources, configs=configs) as search_func:
         async for result in search_func.search(page=page, per_page=per_page, client_id=client_id):
             yield result

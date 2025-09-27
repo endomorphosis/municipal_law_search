@@ -19,9 +19,14 @@ class TalkWithLawFunction:
     This class provides methods to query the database and retrieve information
     about American municipal law using a language model.
     
-    Attributes:
+    Parameters:
         db_path (str): Path to the American law database.
-        model (str): Language model to use for processing.
+        resources (dict[str, Callable], optional): A dictionary of resources, including the language model.
+        configs (Configs, optional): Configuration object containing application-wide settings.
+
+    Attributes:
+        db_path (Path): Path to the American law database.
+        llm (AsyncLLMInterface): Language model to use for processing.
     """
     
     def __init__(self, 
@@ -38,8 +43,6 @@ class TalkWithLawFunction:
 resources = {
     'LLM': LLM,
 }
-
-
 
 async def function():
     pass

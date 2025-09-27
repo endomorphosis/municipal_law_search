@@ -46,7 +46,8 @@ class _TestFileGenerator:
             imports=module_info.get("imports", []),
             classes=module_info.get("classes", []),
             functions=module_info.get("functions", []),
-            coroutines=module_info.get("coroutines", [])
+            coroutines=module_info.get("coroutines", []),
+            exceptions=module_info.get("exceptions", []),
         )
         
         return test_content
@@ -125,8 +126,8 @@ resources = {
 }
 test_generator = _TestFileGenerator(resources, configs)
 
-def generate_test_content():
+def generate_test_content(module_info: dict[str, Any]) -> str:
     """
     A class to generate test files for Python modules.
     """
-    return test_generator.generate_test_content
+    return test_generator.generate_test_content(module_info)

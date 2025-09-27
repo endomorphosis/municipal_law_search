@@ -50,3 +50,11 @@ coverage >=7.8.0
 pathspec
 nltk
 elasticsearch
+
+# testing
+pytest
+pytest-cov
+pytest-asyncio
+
+# For document type detection
+python-magic

@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 import sys
+from typing import Any, Literal
+import logging
 
 import torch
 from pydantic import (
@@ -39,7 +41,7 @@ class Configs(BaseModel):
     """
     Configuration class for the American Law dataset upload to Hugging Face.
 
-    This class defines all the necessary configurations for the project,
+    This pydantic class defines all the necessary configurations for the project,
     including API keys, file paths, model specifications, and other settings.
 
     Attributes:
@@ -67,8 +69,14 @@ class Configs(BaseModel):
     """
     OPENAI_API_KEY:                   SecretStr = os.environ.get("OPENAI_API_KEY")
     HUGGING_FACE_USER_ACCESS_TOKEN:   SecretStr = None
+    ADMIN_EMAIL:                      SecretStr = None
+    EMAIL_SERVER:                     SecretStr = "smtp.gmail.com"
+    EMAIL_USERNAME:                   SecretStr = None
+    EMAIL_PASSWORD:                   SecretStr = None
+    EMAIL_PORT:                       int = 587
     ROOT_DIR:                         DirectoryPath = _ROOT_DIR
     APP_DIR:                          DirectoryPath = _APP_DIR
+    FRONTEND_DIR:                     DirectoryPath = _APP_DIR / "frontend"
     AMERICAN_LAW_DATA_DIR:            DirectoryPath = _ROOT_DIR / "data"
     PARQUET_FILES_DIR:                DirectoryPath = _ROOT_DIR / "data" / "parquet_files"
     AMERICAN_LAW_DB_PATH:             DirectoryPath = _ROOT_DIR / "data" / "american_law.db"
@@ -76,9 +84,10 @@ class Configs(BaseModel):
     PROMPTS_DIR:                      DirectoryPath = _ROOT_DIR / "api" / "llm" / "prompts"
     HUGGING_FACE_REPO_ID:             str = "the-ride-never-ends/american_municipal_law"
     OPENAI_MODEL:                     str = "gpt-4o"
+    OPENAI_SMALL_MODEL:               str = "gpt-5-nano"
     OPENAI_EMBEDDING_MODEL:           str = "text-embedding-3-small"
-    LOG_LEVEL:                        int = 10
-    SIMILARITY_SCORE_THRESHOLD:       float = 0.3
+    LOG_LEVEL:                        Literal[10, 20, 30, 40, 50] = logging.DEBUG
+    SIMILARITY_SCORE_THRESHOLD:       float = 0.4
     SEARCH_EMBEDDING_BATCH_SIZE:      int = 10000
     DATABASE_CONNECTION_POOL_SIZE:    int = 10
     DATABASE_CONNECTION_TIMEOUT:      int = 30
@@ -149,8 +158,15 @@ class Configs(BaseModel):
             return default
 
 # Load the configs from the yaml and create an instance of the Configs class
-with open(_ROOT_DIR / 'app' / "configs.yaml", "r") as config_file:
-    config_dict = yaml.safe_load(config_file)
+try:
+    with open(_ROOT_DIR / 'app' / "configs.yaml", "r") as config_file:
+        config_dict = yaml.safe_load(config_file)
+except FileNotFoundError as e:
+    raise FileNotFoundError("Configuration file 'configs.yaml' not found.") from e
+except yaml.YAMLError as e:
+    raise ValueError("Error parsing the configuration file 'configs.yaml'.") from e
+except Exception as e:
+    raise Exception(f"Unexpected error loading configuration: {e}") from e
 
 try:
     configs = CONFIGS = Configs.model_validate(config_dict)
@@ -158,3 +174,5 @@ except ValidationError as e:
     raise ValidationError(
         f"Validation error in configs: {e.errors()}"
     ) from e
+except Exception as e:
+    raise Exception(f"Unexpected error validating configuration: {e}") from e

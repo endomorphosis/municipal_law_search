@@ -1,17 +1,21 @@
-from pathlib import Path
-import time
-import re
-from typing import Any, Callable, Optional
-from enum import Enum
-import threading
 import asyncio
+from collections import defaultdict
+import contextlib
+import functools
+import logging
+import re
+import threading
+import time
+from enum import Enum
+from pathlib import Path
+from typing import Any, AsyncGenerator, AsyncContextManager, Callable, Optional
 
 
-from logger import logger
-from configs import Configs, configs
-from read_only_database import READ_ONLY_DB, Database
+from configs import Configs
+from read_only_database import Database
 
-class DependencyError(Exception):
+
+class DependencyError(RuntimeError):
     """
     Custom exception for handling dependency errors in the circuit breaker pattern.
     
@@ -19,9 +23,8 @@ class DependencyError(Exception):
         message: Error message describing the dependency failure
         dependency: Name of the dependency that failed
     """
-    def __init__(self, message: str, dependency: str):
+    def __init__(self, message: str):
         super().__init__(message)
-        self.dependency = dependency
 
 
 class DependencyState(Enum):
@@ -36,6 +39,82 @@ class DependencyState(Enum):
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half-open"
+
+
+class ErrorLevel(Enum):
+    """
+    Enum representing the severity level of errors.
+    
+    Attributes:
+        LOW: Low severity error
+        MEDIUM: Medium severity error
+        HIGH: High severity error
+        CRITICAL: Critical severity error
+    """
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+HOUR_IN_SECONDS = 3600
+MINUTE_IN_SECONDS = 60
+MILLISECOND_SCALAR = 1000
+
+
+
+def now() -> float:
+    """Get the current time in seconds since the epoch."""
+    return time.monotonic()
+
+def fallback(fallback_method_name: str):
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            fallback_func = getattr(self, fallback_method_name, None)
+            if not callable(fallback_func):
+                raise ValueError(f"Fallback method '{fallback_method_name}' is not callable or does not exist.")
+            primary_name = func.__name__
+
+            if 'query' in kwargs:
+                args[0] = kwargs.pop('query', '*')
+
+            try:
+                return await func(self, *args, **kwargs)
+            except Exception as e:
+                self.logger.exception(f"{primary_name} failed, trying {fallback_method_name}: {e}")
+                try:
+                    result = await fallback_func(*args, **kwargs)
+                    self.track_dependency_failure(primary_name, recovered=True)
+                    return result
+                except Exception as fallback_error:
+                    self.track_dependency_failure(primary_name, recovered=False)
+                    raise DependencyError(f"Both {primary_name} and {fallback_method_name} failed") from fallback_error
+        return wrapper
+    return decorator
+
+
+@contextlib.asynccontextmanager
+async def timeit():
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            start_time = time.monotonic()
+            try:
+                yield
+            finally:
+                self.calculate_duration_ms(start_time)
+        return wrapper
+    return decorator
+
+
+def _type_check_str(query: Any) -> None:
+    if not isinstance(query, str):
+        raise TypeError(f"Query must be a string, got {type(query).__name__}")
+
+def _value_check_str(query: str) -> None:
+    if not query.strip():
+        raise ValueError("Query cannot be empty or whitespace")
 
 
 class SearchEngine:
@@ -106,7 +185,7 @@ class SearchEngine:
             Calculate the overall resilience ratio.
         track_dependency_failure(dependency: str, recovered: bool) -> None:
             Record a dependency failure and whether it was recovered.
-        reset_dependency_tracking() -> None:
+        _reset_dependency_tracking() -> None:
             Reset dependency tracking counters.
         get_dependency_resilience(dependency: str) -> float:
             Get resilience metrics for a specific dependency.
@@ -152,17 +231,19 @@ class SearchEngine:
         self._multi_field_search = self.resources['multi_field_search']
         self._query_parser = self.resources['query_parser']
 
+        self.logger: logging.Logger = self.resources['logger']
+
         self._word_piece_tokenizer = self.resources['word_piece_tokenizer'] # Something like nltk.WordPunctTokenizer()
 
         # Dependencies
         self._db: Database = self.resources.get('db')
         self._llm = None # Natural language to Elasticsearch query conversion, if needed
 
-
         self._results: list[dict[str, Any]] = []
 
         self._max_query_length = configs.get('max_query_length', 1000)  # Default max query length
-        
+        self._rolling_window_size = configs.get('rolling_window_size', 1000)  # Default rolling window size for capacity analysis
+
         # Performance measurement tracking
         self._last_processing_time_in_ms: float = 0.0
         self._last_database_time_in_ms: float = 0.0
@@ -179,16 +260,37 @@ class SearchEngine:
         self._error_count: int = 0
         self._operation_count: int = 0
         self._error_lock = threading.Lock()
-        
+
+        self._error_history: list[dict] = []
+        self._error_types: dict = {}
+        self._error_patterns: dict = {}
+        self._error_times: list = []
+
         # Dependency resilience tracking
         self._dependency_failures: dict[str, int] = {}
         self._dependency_recovery: dict[str, int] = {}
-        self._circuit_breakers: dict[str, dict] = {}
+        self._circuit_breakers: defaultdict[str, dict] = defaultdict(lambda: {})
         self._dependency_lock = threading.Lock()
 
-    def search(self, query: str, *args, **kwargs) -> list[dict[str, Any]]:
+        # Operation tracking
+        self._operation_history: list[dict] = []
+        self._operation_types: dict = {}
+        self._operation_times: list = []
+
+
+    def calculate_duration_ms(self, start_time: float) -> float:
+        """Calculate duration in milliseconds."""
+        assert isinstance(start_time, float), f"Start time must be a float, got {type(start_time)}"
+        assert start_time > 0, f"Start time {start_time} must be positive, got {start_time}"
+        end_time = now()
+        assert end_time >= start_time, f"End time {end_time} must be greater than or equal to start time {start_time}"
+        return (end_time - start_time) * MILLISECOND_SCALAR  # Convert to milliseconds
+
+
+    async def search(self, query: str, *args, **kwargs) -> list[dict[str, Any]]:
         """
         Perform a search operation using the provided query.
+        TODO This method is all sorts of fucked up.
 
         Args:
             query (str): The search query.
@@ -198,87 +300,80 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The search results.
         """
-        start_time = time.time()
-        weights: list[float] = [1.0] * len(self.resources.get('fields', []))  # Default weights for multi-field search
-        
+        _type_check_str(query)
+        _value_check_str(query)
+
+        start_time = now()
+        weights: list[float] = [1.0] * len(self.resources.get('fields', []))  # Default weights for multi-field search TODO These are not used at all.
         try:
             # Track this operation
             self.track_operations(f"search: {query}")
-            
+
             # Parse and process the query
-            processed_query = self.query_parser(query)
-            
+            parsed_query = await self.query_parser(query)
+
             # Capture processing time
-            processing_end_time = time.time()
-            self._last_processing_time_in_ms = (processing_end_time - start_time) * 1000  # ms
-            
+            self._last_processing_time_in_ms = self.calculate_duration_ms(start_time)
+
             # Execute database operations
             # Here we're simulating different search types based on query content
             # TODO - Implement a more sophisticated query parser that can handle complex queries
-            if "image:" in processed_query:
-                image_path = processed_query.split("image:")[1].strip()
-                results = self.image_search(image_path, *args, **kwargs)
-            elif "voice:" in processed_query:
-                audio_path = processed_query.split("voice:")[1].strip()
-                results = self.voice_search(audio_path, *args, **kwargs)
-            elif '"' in processed_query:
+            if "image:" in parsed_query:
+                results = self.image_search(parsed_query.split("image:")[1].strip(), *args, **kwargs)
+            elif "voice:" in parsed_query:
+                results = self.voice_search(parsed_query.split("voice:")[1].strip(), *args, **kwargs)
+            elif '"' in parsed_query:
                 # Extract the phrase inside quotes
-                phrase = re.findall(r'"([^"]*)"', processed_query)
-                if phrase:
-                    results = self.exact_match(phrase[0], *args, **kwargs)
-                else:
-                    results = self.text_search(processed_query, *args, **kwargs)
-            elif "-" in processed_query:
+                phrase = re.findall(r'"([^"]*)"', parsed_query)
+                self.exact_match(phrase[0], *args, **kwargs) if phrase else self.text_search(parsed_query, *args, **kwargs)
+            elif "-" in parsed_query:
                 # Handle exclusion operator
-                terms = processed_query.split("-", 1)
-                include_term = terms[0].strip()
-                exclude_term = terms[1].strip()
-                results = self.string_exclusion(include_term, exclude_term, *args, **kwargs)
+                terms = parsed_query.split("-", 1)
+                results = self.string_exclusion(terms[0].strip(), terms[1].strip(), *args, **kwargs)
             else:
                 # Default to text search
-                results = self.text_search(processed_query, *args, **kwargs)
-            
+                results = self.text_search(parsed_query, *args, **kwargs)
+
             # Capture database time
-            database_end_time = time.time()
-            self._last_database_time_in_ms = (database_end_time - processing_end_time) * 1000  # ms
-            
+            self._last_database_time_in_ms = self.calculate_duration_ms(start_time)
+
             # Apply ranking algorithm and store results
-            self._results = self.ranking_algorithm(processed_query, results, *args, **kwargs)
+            self._results = self.ranking_algorithm(parsed_query, results, *args, **kwargs)
             
             # Capture ranking time
-            ranking_end_time = time.time()
-            self._last_ranking_time_in_ms = (ranking_end_time - database_end_time) * 1000  # ms
+            self._last_ranking_time_in_ms = self.calculate_duration_ms(start_time)
 
             # Capture total time
-            end_time = time.time()
-            self._last_total_time_in_ms = (end_time - start_time) * 1000  # ms
-            
+            self._last_total_time_in_ms = self.calculate_duration_ms(start_time)
+
             # Store response time for capacity analysis
             self._response_times.append(self._last_total_time_in_ms)
-            if len(self._response_times) > 1000:
+            if len(self._response_times) > self._rolling_window_size:
                 self._response_times.pop(0)  # Keep the list from growing too large
-            
+
             # Update query count for volume tracking
             with self._error_lock:
                 self._query_count += 1
-            
+
             return self._results
-            
+
         except Exception as e:
             # Track this error
             error_type = self.classify_error(e)
             self.track_errors(f"{error_type}: {e}")
-            
-            # Log the error
-            logger.error(f"Search error: {e}")
-            
-            # Re-raise the exception
-            raise
+            msg = f"Search operation failed: {e}"
 
-    def text_search(self, query: str, *args, **kwargs) -> list[dict[str, Any]]:
+            # Log the error
+            self.logger.exception(msg)
+
+            # Re-raise the exception
+            raise RuntimeError(msg) from e
+
+
+    async def text_search(self, query: str, *args, **kwargs) -> list[dict[str, Any]]:
         """
         Perform a text-based search operation.
-        
+
         Args:
             query (str): The text search query.
             *args: Additional positional arguments.
@@ -287,29 +382,27 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The search results.
         """
+        img_desc = kwargs.pop('image_description', None)
+        if img_desc is not None:
+            query = img_desc
+
+        _type_check_str(query)
+
+        if not query.strip():
+            return []
+
         try:
-            results =  self._text_search(query, self._db, *args, **kwargs)
-
-            # Apply ranking if needed
-            if kwargs.get("apply_ranking", True):
-                return self.ranking_algorithm(query, results, *args, **kwargs)
-            return results
-
+            results = await self._text_search(query, self._db, *args, **kwargs)
         except Exception as e:
-            dependency = "text_search"
-            recovered = False
-            try:
-                # Attempt fallback
-                logger.exception(f"Text search failed, attempting fallback: {e}")
-                results = self._text_search(query, self._db, *args, **kwargs)
-                recovered = True
-                return results
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"Text search failed: {e}", dependency)
+            raise DependencyError(f"Text search failed: {e}") from e
 
-    def image_search(self, image_path: str, *args, **kwargs) -> list[dict[str, Any]]:
+        # Apply ranking if needed
+        if kwargs.get("apply_ranking", True):
+            return self.ranking_algorithm(query, results, *args, **kwargs)
+        return results
+
+
+    async def image_search(self, image_path: str, *args, **kwargs) -> list[dict[str, Any]]:
         """
         Perform an image-based search operation.
         
@@ -321,28 +414,17 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The search results.
         """
+        _type_check_str(image_path)
+        _value_check_str(image_path)
         try:
-            return self._image_search(image_path, self._db, *args, **kwargs)
+            return await self._image_search(image_path, self._db, *args, **kwargs)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Image file not found: {image_path}")
         except Exception as e:
-            dependency = "image_search"
-            recovered = False
-            
-            try:
-                # Attempt fallback to text search if applicable
-                if kwargs.get('fallback_to_text', True):
-                    logger.exception(f"Image search failed, attempting text fallback: {e}")
-                    # Extract any text description or tags from kwargs
-                    text_query = kwargs.get('image_description', 'image')
-                    results = self.text_search(text_query, *args, **kwargs)
-                    recovered = True
-                    return results
-                return []
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"Image search failed: {e}", dependency)
+            raise DependencyError(f"Image search failed: {e}") from e
 
-    def voice_search(self, audio_path: str, *args, **kwargs) -> list[dict[str, Any]]:
+
+    async def voice_search(self, audio_path: str, *args, **kwargs) -> list[dict[str, Any]]:
         """
         Perform a voice-based search operation.
         
@@ -354,30 +436,18 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The search results.
         """
-        
-
+        _type_check_str(audio_path)
+        _value_check_str(audio_path)
         try:
-            return self._voice_search(audio_path, self._db, *args, **kwargs)
+            return await self._voice_search(audio_path, self._db, *args, **kwargs)
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"Audio file not found: {audio_path}") from e
         except Exception as e:
-            dependency = "voice_search"
-            recovered = False
-            
-            try:
-                # Attempt fallback to text search if applicable
-                if kwargs.get('fallback_to_text', True):
-                    logger.exception(f"Voice search failed, attempting text fallback: {e}")
-                    # Extract any text transcription from kwargs
-                    text_query = kwargs.get('transcription', 'voice')
-                    results = self.text_search(text_query, *args, **kwargs)
-                    recovered = True
-                    return results
-                return []
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"Voice search failed: {e}", dependency)
+            raise DependencyError(f"Voice search failed: {e}") from e
 
-    def exact_match(self, phrase: str, *args, **kwargs) -> list[dict[str, Any]]:
+
+    @fallback('text_search')
+    async def exact_match(self, phrase: str, *args, **kwargs) -> list[dict[str, Any]]:
         """
         Perform an exact phrase matching search.
         
@@ -389,55 +459,27 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The search results containing the exact phrase.
         """
-        try:
-            return self._exact_match(phrase, self._db, *args, **kwargs)
-        except Exception as e:
-            dependency = "exact_match"
-            recovered = False
-            
-            try:
-                # Attempt fallback
-                logger.exception(f"Exact match failed, attempting text search fallback: {e}")
-                # Assuming text_search can handle exact phrases
-                results = self.text_search(f'"{phrase}"', *args, **kwargs)
-                recovered = True
-                return results
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"Exact phrase matching search failed: {e}", dependency)
+        return await self._exact_match(phrase, self._db, *args, **kwargs)
 
-    def fuzzy_match(self, term: str, threshold: float = 0.8, *args, **kwargs) -> list[dict[str, Any]]:
+
+    @fallback('text_search')
+    async def fuzzy_match(self, term: str, threshold: float = 0.8, *args, **kwargs) -> list[dict[str, Any]]:
         """
         Perform a fuzzy matching search with configurable threshold.
-        
+
         Args:
             term (str): The term to search for with fuzzy matching.
             threshold (float, optional): Similarity threshold (0.0-1.0). Defaults to 0.8.
             *args: Additional positional arguments.
             **kwargs: Additional keyword arguments.
-            
+
         Returns:
             list[dict[str, Any]]: The search results matching the fuzzy criteria.
         """
-        try:
-            return self._fuzzy_match(term, threshold, self._db, *args, **kwargs)
-        except Exception as e:
-            dependency = "fuzzy_match"
-            recovered = False
+        return await self._fuzzy_match(term, threshold, self._db, *args, **kwargs)
 
-            try:
-                # Attempt fallback
-                logger.exception(f"Fuzzy match failed, attempting text search fallback: {e}")
-                results = self.text_search(term, *args, **kwargs)
-                recovered = True
-                return results
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"Fuzzy match failed: {e}", dependency)
-
-    def string_exclusion(self, include_term: str, exclude_term: str, *args, **kwargs) -> list[dict[str, Any]]:
+    @fallback('text_search')
+    async def string_exclusion(self, include_term: str, exclude_term: str, *args, **kwargs) -> list[dict[str, Any]]:
         """
         Perform a search that excludes specific terms.
         
@@ -450,47 +492,11 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The search results containing include_term but not exclude_term.
         """
-        try:
-            
-            if self._string_exclusion:
-                return self._string_exclusion(include_term, exclude_term, self._db, *args, **kwargs)
-            else:
-                # Basic implementation if not provided
-                # Get results with include term
-                include_results = self.text_search(include_term, *args, **kwargs)
-                
-                # Filter out results containing exclude term
-                # This is a simplified approach; real exclusion would be more sophisticated
-                # TODO - Implement a more efficient exclusion mechanism
-                filtered_results = []
-                for result in include_results:
-                    # Check if any text field contains the exclude term
-                    exclude_found = False
-                    for key, value in result.items():
-                        if isinstance(value, str) and exclude_term.lower() in value.lower():
-                            exclude_found = True
-                            break
-                    
-                    if not exclude_found:
-                        filtered_results.append(result)
-                
-                return filtered_results
-        except Exception as e:
-            dependency = "string_exclusion"
-            recovered = False
-            
-            try:
-                # Attempt fallback
-                logger.exception(f"String exclusion failed, attempting basic text search: {e}")
-                results = self.text_search(include_term, *args, **kwargs)
-                recovered = True
-                return results
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"String exclusion failed: {e}", dependency)
+        return await self._string_exclusion(include_term, exclude_term, self._db, *args, **kwargs)
 
-    def filter_criteria(self, criteria: dict[str, Any], *args, **kwargs) -> list[dict[str, Any]]:
+
+    @fallback('text_search')
+    async def filter_criteria(self, criteria: dict[str, Any], *args, **kwargs) -> list[dict[str, Any]]:
         """
         Apply arbitrary filtering criteria to search results.
         
@@ -502,30 +508,15 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The filtered search results.
         """
-        try:
-            results = self._filter_criteria(criteria, self._db, *args, **kwargs)
+        return await self._filter_criteria(criteria, self._db, *args, **kwargs)
 
-            # Apply ranking if specified
-            if kwargs.get("apply_ranking", False) and query:
-                return self.ranking_algorithm(query, results, *args, **kwargs)
 
-        except Exception as e:
-            dependency = "filter_criteria"
-            recovered = False
+    def _return_input(self, results, *args, **kwargs):
+        """Passthrough function to return input results as-is."""
+        return results
 
-            try:
-                # Attempt fallback
-                logger.exception(f"Filter criteria failed, attempting basic search: {e}")
-                query = kwargs.get('query', '*')
-                results = self.text_search(query, *args, **kwargs)
-                recovered = True
-                return results
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"Filtering criteria failed: {e}", dependency)
-
-    def ranking_algorithm(self, query: str, results: list[dict[str, Any]], *args, **kwargs) -> list[dict[str, Any]]:
+    @fallback('_return_input')
+    async def ranking_algorithm(self, query: str, results: list[dict[str, Any]], *args, **kwargs) -> list[dict[str, Any]]:
         """
         Sort and rank search results based on relevance.
         
@@ -538,23 +529,18 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The ranked search results.
         """
-        try:
-            scored_results = self._ranking_algorithm(query, results, *args, **kwargs)
-            return [result for result, _ in scored_results]
-        except Exception as e:
-            dependency = "ranking_algorithm"
-            recovered = False
-            try:
-                # Attempt fallback
-                logger.exception(f"Ranking algorithm failed, returning un-ranked results: {e}")
-                recovered = True
-                return results
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"Ranking algorithm failed: {e}", dependency)
+        scored_results = await self._ranking_algorithm(query, results, *args, **kwargs)
+        return [result for result, _ in scored_results]
 
-    def multi_field_search(self, query: str, fields: list[str], weights: list[float] = None, *args, **kwargs) -> Optional[list[dict[str, Any]]]:
+    @fallback('text_search')
+    async def multi_field_search(
+        self, 
+        query: str, 
+        fields: list[str], 
+        weights: Optional[list[float]] = None, 
+        *args, 
+        **kwargs
+        ) -> Optional[list[dict[str, Any]]]:
         """
         Search across multiple fields with configurable weights.
 
@@ -568,11 +554,11 @@ class SearchEngine:
         Returns:
             list[dict[str, Any]]: The search results.
         """
+        _type_check_str(query)
+        _value_check_str(query)
+
        # Process the query
-        processed_query = self.query_parser(query, *args, **kwargs)
-        
-        if not processed_query:
-            return []
+        parsed_query = self.query_parser(query, *args, **kwargs)
 
         # Default equal weights if none provided
         if weights is None:
@@ -583,28 +569,18 @@ class SearchEngine:
         if weights and len(weights) == len(fields):
             weighted_fields = [f"{field}^{weight}" for field, weight in zip(fields, weights)]
 
-        try:
-            return self._multi_field_search(query, weighted_fields, self._db, *args, **kwargs)
-        except Exception as e:
-            dependency = "multi_field_search"
-            recovered = False
-            try:
-                # Attempt fallback
-                logger.exception(f"Multi-field search failed, attempting basic text search: {e}")
-                results = self.text_search(query, *args, **kwargs)
-                recovered = True
-                return results
-            finally:
-                self.track_dependency_failure(dependency, recovered)
-                if not recovered:
-                    raise DependencyError(f"Multi-field search failed: {e}", dependency)
+        return await self._multi_field_search(query, weighted_fields, self._db, *args, **kwargs)
 
+    def _split_on_whitespace(self, query: str) -> list[str]:
+        """Split a query string into tokens based on whitespace."""
+        return " ".join(query.split())
 
-    def query_parser(self, query: str, *args, **kwargs) -> str:
+    @fallback('_split_on_whitespace')
+    async def query_parser(self, query: str, *args, **kwargs) -> str:
         """
         Parse and normalize a search query.
         # TODO - Implement a more sophisticated query parser that can handle complex queries,
-        
+
         Args:
             query (str): The raw search query.
             *args: Additional positional arguments.
@@ -612,35 +588,23 @@ class SearchEngine:
             
         Returns:
             str: The parsed and normalized query.
+
+        Raises:
+            DependencyError: If the query parser fails and cannot recover.
+            RuntimeError: If an unexpected error occurs during query parsing.
         """
-        # Handle empty queries
-        if query is None or not query.strip():
-            return ""
-        else:
-            # Basic cleaning
-            query.strip()
+        _type_check_str(query)
+        _value_check_str(query)
 
-        try:
-            processed_query: str = self._query_parser(query, *args, **kwargs)
-        except Exception as e:
-            dependency = "query_parser"
-            recovered = False
-            # Attempt fallback
-            logger.exception(f"Query parser failed, falling back to basic implementation: {e}")
-            processed_query = " ".join(query.split())
-            recovered = True
-            self.track_dependency_failure(dependency, recovered)
-        finally:
-            if not recovered:
-                raise DependencyError(f"Query parser failed: {e}", dependency)
+        parsed_query: str = await self._query_parser(query, *args, **kwargs)
 
-            # Apply any custom transformations from kwargs
-            if kwargs.get('lowercase', True):
-                processed_query = processed_query.lower()
-            return processed_query
+        # Apply any custom transformations from kwargs
+        if kwargs.get('lowercase', True):
+            parsed_query = parsed_query.lower()
+        return parsed_query
 
 
-    def measure_response_time(self, query: str, *args, **kwargs) -> float:
+    async def measure_response_time(self, query: str, *args, **kwargs) -> float:
         """
         Measure end-to-end response time for a query.
         
@@ -652,16 +616,18 @@ class SearchEngine:
         Returns:
             float: The total response time in milliseconds.
         """
-        start_time = time.time()
-        
+        start_time = now()
+
         try:
-            self.search(query, *args, **kwargs)
+            _ = await self.search(query, *args, **kwargs)
         except Exception as e:
-            logger.exception(f"Error during response time measurement: {e}")
+            msg = f"Error during response time measurement: {e}"
+            self.logger.exception(msg)
+            raise RuntimeError(msg) from e
 
-        return (time.time() - start_time) * 1000  # Convert to milliseconds
+        return self.calculate_duration_ms(start_time)
 
-    def measure_processing_time(self, query: str, *args, **kwargs) -> float:
+    async def measure_processing_time(self, query: str, *args, **kwargs) -> float:
         """
         Measure query preprocessing time.
         
@@ -673,19 +639,19 @@ class SearchEngine:
         Returns:
             float: The processing time in milliseconds.
         """
-        start_time = time.time()
-        
-        try:
-            self.query_parser(query, *args, **kwargs)
-        except Exception as e:
-            logger.exception(f"Error during processing time measurement: {e}")
-        
-        end_time = time.time()
-        return (end_time - start_time) * 1000  # Convert to milliseconds
+        start_time = now()
 
-    def measure_database_time(self, query: str, *args, **kwargs) -> float:
-        """
-        Measure database operation time.
+        try:
+            _ = await self.query_parser(query, *args, **kwargs)
+        except Exception as e:
+            msg = f"Error during processing time measurement: {e}"
+            self.logger.exception(msg)
+            raise RuntimeError(msg) from e
+
+        return self.calculate_duration_ms(start_time)
+
+    async def measure_database_time(self, query: str, *args, **kwargs) -> float:
+        """Measure database operation time.
         
         Args:
             query (str): The search query.
@@ -695,40 +661,37 @@ class SearchEngine:
         Returns:
             float: The database operation time in milliseconds.
         """
+        _type_check_str(query)
+        _value_check_str(query)
+
         # First parse the query
-        processed_query = self.query_parser(query, *args, **kwargs)
-        
-        start_time = time.time()
-        
+        parsed_query = await self.query_parser(query, *args, **kwargs)
+
+        start_time = now()
+
         try:
             # TODO - Remove simulation of database operations
             # Simulate database operations by executing the appropriate search function
-            if "image:" in processed_query:
-                image_path = processed_query.split("image:")[1].strip()
-                self.image_search(image_path, *args, **kwargs)
-            elif "voice:" in processed_query:
-                audio_path = processed_query.split("voice:")[1].strip()
-                self.voice_search(audio_path, *args, **kwargs)
-            elif '"' in processed_query:
-                phrase = re.findall(r'"([^"]*)"', processed_query)
-                if phrase:
-                    self.exact_match(phrase[0], *args, **kwargs)
-                else:
-                    self.text_search(processed_query, *args, **kwargs)
-            elif "-" in processed_query:
-                terms = processed_query.split("-", 1)
-                include_term = terms[0].strip()
-                exclude_term = terms[1].strip()
-                self.string_exclusion(include_term, exclude_term, *args, **kwargs)
+            if "image:" in parsed_query:
+                self.image_search(parsed_query.split("image:")[1].strip(), *args, **kwargs)
+            elif "voice:" in parsed_query:
+                self.voice_search(parsed_query.split("voice:")[1].strip(), *args, **kwargs)
+            elif '"' in parsed_query:
+                phrase = re.findall(r'"([^"]*)"', parsed_query)
+                self.exact_match(phrase[0], *args, **kwargs) if phrase else self.text_search(parsed_query, *args, **kwargs)
+            elif "-" in parsed_query:
+                terms = parsed_query.split("-", 1)
+                self.string_exclusion(terms[0].strip(), terms[1].strip(), *args, **kwargs)
             else:
-                self.text_search(processed_query, *args, **kwargs)
+                self.text_search(parsed_query, *args, **kwargs)
         except Exception as e:
-            logger.error(f"Error during database time measurement: {e}")
-        
-        end_time = time.time()
-        return (end_time - start_time) * 1000  # Convert to milliseconds
+            msg = f"Error during database time measurement: {e}"
+            self.logger.exception(msg)
+            raise RuntimeError(msg) from e
 
-    def measure_ranking_time(self, query: str, results: list[dict[str, Any]], *args, **kwargs) -> float:
+        return self.calculate_duration_ms(start_time)
+
+    async def measure_ranking_time(self, query: str, results: list[dict[str, Any]], *args, **kwargs) -> float:
         """
         Measure result ranking time.
         
@@ -741,15 +704,9 @@ class SearchEngine:
         Returns:
             float: The ranking time in milliseconds.
         """
-        start_time = time.time()
-        
-        try:
-            self.ranking_algorithm(query, results, *args, **kwargs)
-        except Exception as e:
-            logger.error(f"Error during ranking time measurement: {e}")
-        
-        end_time = time.time()
-        return (end_time - start_time) * 1000  # Convert to milliseconds
+        start_time = now()
+        _ = await self.ranking_algorithm(query, results, *args, **kwargs)
+        return self.calculate_duration_ms(start_time)
 
     async def measure_response_time_async(self, query: str, *args, **kwargs) -> float:
         """
@@ -764,34 +721,21 @@ class SearchEngine:
         Returns:
             float: The total response time in milliseconds.
         """
-        start_time = time.time()
-        
-        try:
-            # This is a placeholder for async search implementation
-            # In a real async implementation, this would use async/await properly
-            # TODO - Implement a proper async search method
-            await asyncio.sleep(0)  # Simulate some async work
-            self.search(query, *args, **kwargs)
-        except Exception as e:
-            logger.error(f"Error during async response time measurement: {e}")
-        
-        end_time = time.time()
-        return (end_time - start_time) * 1000  # Convert to milliseconds
+        start_time = now()
+        _ = await self.search(query, *args, **kwargs)
+        return self.calculate_duration_ms(start_time)
 
     def measure_query_capacity(self) -> float:
-        """
-        Calculate the capacity ratio (max query volume / design query volume).
+        """Calculate the capacity ratio (max query volume / design query volume).
         
         Returns:
             float: The capacity ratio.
         """
-        max_volume = self.measure_max_query_volume()
-        return max_volume / self.design_query_volume()
+        return self.measure_max_query_volume() / self.design_query_volume
 
     @property
     def design_query_volume(self) -> int:
-        """
-        Get the current design query volume setting.
+        """Get the current design query volume setting.
         
         Returns:
             int: The current design query volume in queries per second.
@@ -809,70 +753,105 @@ class SearchEngine:
         Raises:
             ValueError: If volume is not positive.
         """
-        if not isinstance(int) and volume <= 0:
+        if not isinstance(volume, int):
+            raise TypeError("Design query volume must be an integer")
+        if volume <= 0:
             raise ValueError("Design query volume must be positive")
         self._design_query_volume = volume
 
-    def measure_max_query_volume(self) -> int:
-        """
-        Determine the maximum query volume before degradation.
-        
-        This method estimates the maximum query volume based on response time patterns.
-        In a real implementation, this would involve load testing or more sophisticated metrics.
-        TODO - Implement a more sophisticated method to estimate maximum query volume based on historical data and response times.
-        
+    @staticmethod
+    def _calculate_percentiles(times: list[float], *args) -> tuple[float, ...]:
+        """Calculate specified percentiles from a list of times."""
+        sorted_times = sorted(times)
+        return tuple(sorted_times[int(arg * len(sorted_times))] for arg in args)
+
+    @staticmethod
+    def _calculate_capacity_factor(percentiles: tuple[float, ...], cap: float = 3.0) -> tuple[float, ...]:
+        """Calculate capacity degradation factor based on percentiles."""
+        # Define acceptable thresholds (ms)
+        # (Optimal, Acceptable, Poor)
+        targets = (100.0, 250.0, 500.0)
+
+        degradation_factors = tuple(target / max(p, 1.0) for p, target in zip(percentiles, targets))
+
+        # Use the most restrictive factor (lowest)
+        return min(min(degradation_factors), cap)
+
+    def measure_max_query_volume(self, min_sample_size: int = 31, max_factor_cap: float | int = 3.0) -> int:
+        """Determine the maximum query volume before degradation.
+
+        Uses percentile-based analysis of response times to estimate capacity.
+
+        Args:
+            min_sample_size (int): Minimum number of samples required for analysis. Defaults to 31.
+            max_factor_cap (float, int): Maximum cap for capacity factor. Defaults to 3.0.
+
         Returns:
             int: Estimated maximum query volume in queries per second.
         """
-        # TODO - Implement a more sophisticated method to estimate maximum query volume based on historical data and response times.
-        # This is a simplified approach
-        # In a real implementation, this would be much more complex
-        
-        # If we don't have enough response time data, return a conservative estimate
-        if not self._response_times:
-            return 100  # Conservative default
-        
-        # Calculate average response time
-        avg_response_time = sum(self._response_times) / len(self._response_times)
-        
-        # TODO - Implement a more sophisticated method to estimate maximum query volume based on historical data and response times.
-        # Simplified model: assume linear degradation based on response time
-        # 100ms is considered optimal, 500ms is considered degraded
-        if avg_response_time <= 100:
-            # If response time is good, assume we can handle at least 2x design volume
-            return self._design_query_volume * 2
-        elif avg_response_time >= 500:
-            # If response time is poor, assume we're at capacity
-            return self._design_query_volume
-        else:
-            # Linear interpolation between 100ms and 500ms
-            capacity_factor = 2 - (avg_response_time - 100) / 400
-            return int(self._design_query_volume * capacity_factor)
+        factors = (0.5, 0.95, 0.99)  # Percentiles to consider
 
-    def detect_load_degradation(self) -> bool:
+        assert isinstance(min_sample_size, int), f"Minimum sample size must be an integer, got {type(min_sample_size).__name__}"
+        assert min_sample_size >= 1, "Minimum sample size must be non-negative"
+
+        assert isinstance(max_factor_cap, (int, float)), f"Max factor cap must be a number, got {type(max_factor_cap).__name__}"
+        assert max_factor_cap > 1.0, f"Max factor cap must be greater than 1.0, got {max_factor_cap}"
+
+        # Calculate current query rate
+        time_window = now() - self._query_start_time
+        assert time_window > 0, f"Time window must be positive, got {time_window}"
+
+        # Need at least X samples for meaningful analysis
+        if len(self._response_times) < min_sample_size:
+            return self._design_query_volume
+
+        percentiles  = self._calculate_percentiles(self._response_times, *factors)
+
+        capacity_factor = self._calculate_capacity_factor(*percentiles, cap=max_factor_cap)
+
+        # Apply capacity factor to current performance
+        current_qps = self._query_count / time_window
+
+        if current_qps > 0:
+            estimated_max = int(current_qps * capacity_factor)
+            # Don't estimate below current performance if we're not degraded
+            return max(estimated_max, int(current_qps)) if capacity_factor >= 1.0 else estimated_max
+
+        # Fallback if no current load
+        return int(self._design_query_volume * capacity_factor)
+
+    def detect_load_degradation(self, most_recent_queries: int = 10, threshold: float = 0.2) -> bool:
         """
         Identify when the system is approaching capacity limits.
+
+        Args:
+            most_recent_queries (int): Number of most recent queries to consider for recent average.
+            threshold (float): Percentage increase threshold to signal degradation (e.g., 0.2 for 20%).
         
         Returns:
             bool: True if the system is experiencing load degradation, False otherwise.
         """
+        assert isinstance(most_recent_queries, int), f"most_recent_queries must be an integer, got {type(most_recent_queries).__name__}"
+        assert most_recent_queries > 0, f"most_recent_queries must be positive, got {most_recent_queries}"
+        assert isinstance(threshold, (int, float)), f"threshold must be a number, got {type(threshold).__name__}"
+        assert 0 < threshold < 1, f"threshold must be between 0 and 1, got {threshold}"
+
         # If we don't have enough response time data, assume no degradation.
-        if len(self._response_times) < 10:
+        if len(self._response_times) < most_recent_queries:
             return False
-        
-        # Calculate recent average response time (last 10 queries)
-        recent_avg = sum(self._response_times[-10:]) / 10
-        
+
         # Calculate baseline average (excluding recent queries)
-        baseline_data = self._response_times[:-10]
+        baseline_data = self._response_times[:-most_recent_queries]
         if not baseline_data:
             return False
-        
+
+        # Calculate recent average response time (last 10 queries)
+        recent_avg = sum(self._response_times[-most_recent_queries:]) / most_recent_queries
+
         baseline_avg = sum(baseline_data) / len(baseline_data)
-        
+
         # Check if recent average is significantly higher than baseline
-        # (20% increase is considered significant)
-        return recent_avg > baseline_avg * 1.2
+        return recent_avg > baseline_avg * (1 + threshold)
 
     def measure_dependency_resilience(self) -> float:
         """
@@ -882,75 +861,72 @@ class SearchEngine:
             float: The resilience ratio (recovered failures / total failures).
         """
         with self._dependency_lock:
-            total_failures = sum(self._dependency_failures.values())
-            total_recoveries = sum(self._dependency_recovery.values())
-            
-            if total_failures == 0:
+            try:
+                return sum(self._dependency_recovery.values()) / sum(self._dependency_failures.values())
+            except ZeroDivisionError:
                 return 1.0  # Perfect resilience if no failures
-            
-            return total_recoveries / total_failures
 
-    def track_dependency_failure(self, dependency: str, recovered: bool) -> None:
+    def track_dependency_failure(self, dependency: str, recovered: bool, failure_threshold: int = 5) -> None:
         """
         Record a dependency failure and whether it was recovered.
-        
+
         Args:
             dependency (str): The name of the dependency that failed.
             recovered (bool): Whether the failure was recovered.
+            failure_threshold (int): Number of failures before opening the circuit breaker.
         """
         with self._dependency_lock:
             # Initialize counters if this is the first failure for this dependency
             if dependency not in self._dependency_failures:
                 self._dependency_failures[dependency] = 0
                 self._dependency_recovery[dependency] = 0
-            
+
             # Increment failure count
             self._dependency_failures[dependency] += 1
-            
+
             # Increment recovery count if recovered
             if recovered:
                 self._dependency_recovery[dependency] += 1
-            
+
             # Update circuit breaker state
             if dependency not in self._circuit_breakers:
-                self._circuit_breakers[dependency] = {
-                    'state': DependencyState.CLOSED.value,
-                    'failure_count': 0,
-                    'last_failure_time': 0,
-                    'recovery_attempt_time': 0
-                }
-            
-            circuit = self._circuit_breakers[dependency]
-            
-            if circuit['state'] == DependencyState.CLOSED.value:
-                # Increment failure count
-                circuit['failure_count'] += 1
-                circuit['last_failure_time'] = time.time()
-                
-                # Open circuit if failure threshold reached
-                if circuit['failure_count'] >= 5:  # Configurable threshold
-                    circuit['state'] = DependencyState.OPEN.value
-                    logger.warning(f"Circuit breaker opened for dependency: {dependency}")
-            elif circuit['state'] == DependencyState.HALF_OPEN.value:
-                if recovered:
-                    # Reset circuit if recovery successful
-                    circuit['state'] = DependencyState.CLOSED.value
-                    circuit['failure_count'] = 0
-                    logger.info(f"Circuit breaker closed for dependency: {dependency} after successful recovery")
-                else:
-                    # Back to open state if recovery failed
-                    circuit['state'] = DependencyState.OPEN.value
-                    circuit['last_failure_time'] = time.time()
-                    logger.warning(f"Circuit breaker reopened for dependency: {dependency} after failed recovery attempt")
+                dependency_dict = defaultdict(int)
+                dependency_dict['state'] = DependencyState.CLOSED.value
+                self._circuit_breakers[dependency] = dependency_dict
 
-    def reset_dependency_tracking(self) -> None:
-        """
-        Reset dependency tracking counters.
-        """
+            circuit = self._circuit_breakers[dependency]
+            assert circuit['state'] in {state.value for state in DependencyState}, f"Invalid circuit state: {circuit['state']}"
+
+            match circuit['state']:
+                case DependencyState.CLOSED.value: 
+                    # Increment failure count
+                    circuit['failure_count'] += 1
+                    circuit['last_failure_time'] = time.time()
+
+                    # Open circuit if failure threshold reached
+                    if circuit['failure_count'] >= failure_threshold:  
+                        circuit['state'] = DependencyState.OPEN.value
+                        self.logger.warning(f"Circuit breaker opened for dependency: {dependency}")
+    
+                case DependencyState.OPEN.value:
+                    if recovered:
+                        # Reset circuit if recovery successful
+                        circuit['state'] = DependencyState.CLOSED.value
+                        circuit['failure_count'] = 0
+                        self.logger.info(f"Circuit breaker closed for dependency: {dependency} after successful recovery")
+                    else:
+                        # Back to open state if recovery failed
+                        circuit['state'] = DependencyState.OPEN.value
+                        circuit['last_failure_time'] = time.time()
+                        self.logger.warning(f"Circuit breaker reopened for dependency: {dependency} after failed recovery attempt")
+
+
+    def _reset_dependency_tracking(self) -> None:
+        """Reset dependency tracking counters."""
         with self._dependency_lock:
-            self._dependency_failures.clear()
-            self._dependency_recovery.clear()
-            self._circuit_breakers.clear()
+            for trackers in [self._dependency_failures, self._dependency_recovery, self._circuit_breakers]:
+                trackers.clear()
+
 
     def get_dependency_resilience(self, dependency: str) -> float:
         """
@@ -965,21 +941,26 @@ class SearchEngine:
         with self._dependency_lock:
             if dependency not in self._dependency_failures:
                 return 1.0  # Perfect resilience if no failures
-            
-            failures = self._dependency_failures.get(dependency, 0)
-            recoveries = self._dependency_recovery.get(dependency, 0)
-            
-            if failures == 0:
-                return 1.0
-            
-            return recoveries / failures
 
-    def circuit_breaker_status(self, dependency: str) -> str:
+            num_fails = self._dependency_failures[dependency]
+            assert num_fails >= 0, f"Failure count should never be negative, got {num_fails}"
+            if num_fails == 0:
+                return 1.0
+
+            recoveries = self._dependency_recovery[dependency]
+            assert recoveries >= 0, f"Recovery count should never be negative, got {recoveries}"
+            assert recoveries <= num_fails, f"Recovery count {recoveries} should never exceed failure count {num_fails}"
+
+            return recoveries / num_fails
+
+
+    def circuit_breaker_status(self, dependency: str, recovery_attempt_interval: int = 30) -> str:
         """
         Get the current circuit breaker status for a dependency.
         
         Args:
             dependency (str): The name of the dependency.
+            recovery_attempt_interval (int): Time in seconds to wait before attempting recovery from open state.
             
         Returns:
             str: The circuit breaker status ('closed', 'open', or 'half-open').
@@ -987,17 +968,20 @@ class SearchEngine:
         with self._dependency_lock:
             if dependency not in self._circuit_breakers:
                 return DependencyState.CLOSED.value
-            
+
             circuit = self._circuit_breakers[dependency]
-            
+
             # Check if it's time to try recovery for open circuit
-            if circuit['state'] == DependencyState.OPEN.value:
-                # Wait 30 seconds before trying recovery (configurable)
-                if time.time() - circuit['last_failure_time'] > 30:
-                    circuit['state'] = DependencyState.HALF_OPEN.value
-                    circuit['recovery_attempt_time'] = time.time()
-                    logger.info(f"Circuit breaker half-opened for dependency: {dependency}")
-            
+            match circuit['state']:
+                case DependencyState.CLOSED.value:
+
+                    # Wait a bit before trying recovery
+                    recovery_timestamp = time.time()
+                    if recovery_timestamp - circuit['last_failure_time'] > recovery_attempt_interval:
+                        circuit['state'] = DependencyState.HALF_OPEN.value
+                        circuit['recovery_timestamp'] = recovery_timestamp
+                        self.logger.info(f"Circuit breaker half-opened for dependency: {dependency}")
+
             return circuit['state']
 
     def measure_error_rate(self) -> float:
@@ -1008,34 +992,200 @@ class SearchEngine:
             float: The error rate (errors / operations).
         """
         with self._error_lock:
+            assert self._operation_count >= 0, f"Operation count should never be negative, got {self._operation_count}"
             if self._operation_count == 0:
                 return 0.0
-            
+
             return self._error_count / self._operation_count
 
     def track_errors(self, error_details: str) -> None:
         """
-        Record occurrence of an error.
-        TODO - Implement a more sophisticated error tracking system.
+        Record occurrence of an error with detailed tracking and analysis.
         
         Args:
             error_details (str): Details about the error.
         """
         with self._error_lock:
             self._error_count += 1
-            # In a real implementation, we would store more details about the error
+
+            # Parse error details
+            parts = error_details.split(': ', 1)
+            type_ = parts[0] if len(parts) > 0 else 'unknown'
+            msg = parts[1] if len(parts) > 1 else error_details
+
+            # Create detailed error record
+            record = {
+                'timestamp': time.time(),
+                'type': type_,
+                'message': msg,
+                'error_id': self._error_count,
+                'operation_id': self._operation_count,
+                'severity': self._determine_severity(type_, msg)
+            }
+
+            # Store error record
+            self._error_history.append(record)
+
+            # Maintain rolling window (keep last 1000 errors)
+            if len(self._error_history) > self._rolling_window_size:
+                self._error_history.pop(0)
+
+            # Track error types count
+            if type_ not in self._error_types:
+                self._error_types[type_] = 0
+            self._error_types[type_] += 1
+
+            # Track error patterns for analysis
+            pattern = self._extract_error_pattern(msg)
+            if pattern not in self._error_patterns:
+                self._error_patterns[pattern] = 0
+            self._error_patterns[pattern] += 1
+
+            # Track error timing
+            self._error_times.append(time.time())
+            if len(self._error_times) > self._rolling_window_size:
+                self._error_times.pop(0)
+
+            # Update operation history to mark failure
+            if self._operation_history:
+                # Mark the most recent operation as failed
+                self._operation_history[-1]['success'] = False
+                self._operation_history[-1]['error_details'] = error_details
+
+            # Log critical errors immediately
+            match record['severity']:
+                case ErrorLevel.CRITICAL.value:
+                    self.logger.error(f"Critical error tracked: {error_details}")
+                    # Stop the program for critical errors
+                    raise AssertionError(f"Critical error occurred: {error_details}")
+
+    def _determine_severity(self, error_type: str, error_msg: str) -> str:
+        """Determine error severity level."""
+        critical_patterns = ['database_error', 'network_error', 'timeout_error']
+        high_patterns = ['search_error', 'dependency_error']
+
+        if error_type in critical_patterns:
+            return ErrorLevel.CRITICAL.value
+        elif error_type in high_patterns:
+            return ErrorLevel.HIGH.value
+        elif 'warning' in error_msg.lower():
+            return ErrorLevel.LOW.value
+        else:
+            return ErrorLevel.MEDIUM.value
+    
+    def _extract_error_pattern(self, error_msg: str, max_length: int = 100) -> str:
+        """Extract common patterns from error messages for grouping."""
+        assert isinstance(error_msg, str), f"Error message must be a string, got {type(error_msg).__name__}"
+        assert isinstance(max_length, int), f"Max length must be an integer, got {type(max_length).__name__}"
+        assert max_length > 0, f"Max length must be positive, got {max_length}"
+
+        pattern_dict = {
+            "N": r'\d+',
+            "PATH": r'/[^\s]+',
+            "UUID": r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
+        }
+        for key, regex in pattern_dict.items():
+            error_msg = re.sub(regex, key, error_msg)
+        return error_msg[:max_length]  # Limit pattern length
+
+    
+    def get_error_statistics(self, top_k: int = 5) -> dict[str, Any]:
+        """
+        Get comprehensive error statistics.
+        
+        Returns:
+            dict[str, Any]: A dictionary containing error statistics.
+            Keys are the following:
+                - total_errors: Total number of errors recorded.
+                - error_rate: Current error rate (errors / operations).
+                - recent_errors_count: Number of errors in the last hour.
+                - error_types: Breakdown of errors by type.
+                - common_patterns : Most common error message patterns.
+                - severity_breakdown (ErrorLevel): Breakdown of errors by severity level.
+                - error_frequency (float): Errors per minute over the last hour.
+        
+        """
+        assert isinstance(top_k, int), f"top_k must be an integer, got {type(top_k).__name__}"
+        assert top_k > 0, f"top_k must be positive, got {top_k}"
+
+        with self._error_lock:
+
+            right_now = time.time()
+            recent_errors = [e for e in self._error_history if right_now - e['timestamp'] < HOUR_IN_SECONDS]  # Last hour
+
+            output_dict = {
+                'total_errors': self._error_count,
+                'error_rate': self.measure_error_rate(),
+                'recent_errors_count': len(recent_errors),
+                'error_types': dict(self._error_types),
+                'common_patterns': dict(sorted(self._error_patterns.items(), key=lambda x: x[1], reverse=True)[:top_k]),
+                'severity_breakdown': self._get_severity_breakdown(),
+                'error_frequency': self._calculate_error_frequency()
+            }
+            return output_dict
+    
+    def _get_severity_breakdown(self) -> dict[str, int]:
+        """Get breakdown of errors by severity."""
+        breakdown = defaultdict(int)
+        for error in self._error_history:
+            breakdown[error['severity']] += 1
+        return breakdown
+
+    def _calculate_error_frequency(self) -> float:
+        """Calculate errors per minute over the last hour."""
+        right_now = now()
+        recent_errors = [t for t in self._error_times if right_now - t < HOUR_IN_SECONDS]
+
+        if len(self._error_times) < 2 or len(recent_errors) < 2:
+            return 0.0
+
+        time_span_minutes = (max(recent_errors) - min(recent_errors)) / MINUTE_IN_SECONDS
+        return len(recent_errors) / max(time_span_minutes, 1.0)
+
 
     def track_operations(self, operation_details: str) -> None:
         """
-        Record a successful or failed operation.
-        TODO - Implement a more sophisticated operation tracking system.
+        Record a successful or failed operation with detailed tracking.
         
         Args:
             operation_details (str): Details about the operation.
         """
+        
+        assert isinstance(operation_details, str), f"Operation details must be a string, got {type(operation_details).__name__}"
+        op_details = operation_details.strip()
+        assert op_details, "Operation details must not be an empty string."
+
         with self._error_lock:
             self._operation_count += 1
-            # In a real implementation, we would store more details about the operation
+
+            # Parse operation details
+            parts = op_details.split(': ', 1)
+
+            # Record operation with timestamp
+            record = {
+                'timestamp': time.time(),
+                'type': parts[0] if len(parts) > 0 else 'unknown',
+                'query': parts[1] if len(parts) > 1 else '',
+                'operation_id': self._operation_count,
+                'success': True  # Assume success unless error is tracked separately
+            }
+            
+            # Store operation record
+            self._operation_history.append(record)
+            
+            # Maintain rolling window
+            if len(self._operation_history) > self._rolling_window_size:
+                self._operation_history.pop(0)
+
+            # Track operation types count
+            if record['type'] not in self._operation_types:
+                self._operation_types[record['type']] = 0
+            self._operation_types[record['type']] += 1
+
+            # Track operation timing
+            self._operation_times.append(time.time())
+            if len(self._operation_times) > self._rolling_window_size:
+                self._operation_times.pop(0)
 
     def reset_error_tracking(self) -> None:
         """
@@ -1068,16 +1218,16 @@ class SearchEngine:
                 return "input_error"
             case _:
                 # Check error message content if class name doesn't match
-                error_message = str(error).lower()
-                if "database" in error_message:
+                error_msg = str(error).lower()
+                if "database" in error_msg:
                     return "database_error"
-                elif "network" in error_message:
+                elif "network" in error_msg:
                     return "network_error"
-                elif "search" in error_message:
+                elif "search" in error_msg:
                     return "search_error"
-                elif "timeout" in error_message:
+                elif "timeout" in error_msg:
                     return "timeout_error"
-                elif "input" in error_message:
+                elif "input" in error_msg:
                     return "input_error"
                 else:
                     return "unknown_error"
@@ -1092,21 +1242,3 @@ class SearchEngine:
         """
         return self._results
 
-
-from unittest.mock import MagicMock
-resources = {
-    "ranking_algorithm": MagicMock(),
-    "text_search": MagicMock(),
-    "image_search": MagicMock(),
-    "voice_search": MagicMock(),
-    "exact_match": MagicMock(),
-    "fuzzy_match": MagicMock(),
-    "string_exclusion": MagicMock(),
-    "filter_criteria": MagicMock(),
-    "multi_field_search": MagicMock(),
-    "query_parser": MagicMock(),
-    "db": MagicMock(),
-    "llm": MagicMock(),
-}
-
-SEARCH_ENGINE = SearchEngine(resources=resources, configs=configs)

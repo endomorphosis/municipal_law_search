@@ -1,0 +1,22 @@
+
+
+
+.flex {
+    display: flex;
+}
+
+.hover\:bg-gray-100:hover {
+    background-color: #f3f4f6;
+}
+
+.items-relative {
+    align-items: relative;
+}
+
+/* .upload-btn {
+    Add your custom button styles here
+}
+
+.icon {
+    Add your custom icon styles here
+} */

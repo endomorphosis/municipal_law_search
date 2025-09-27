@@ -6,7 +6,7 @@ connection pooling, and CRUD operations. It supports multiple database engines
 through a dependency injection pattern.
 """
 from contextlib import contextmanager
-from functools import cached_property, wraps
+from functools import wraps
 import os
 from queue import Queue
 from threading import Lock
@@ -120,7 +120,7 @@ class Database:
         _db_path: Path to the database file
     """
 
-    def __init__(self, 
+    def __init__(self, *,
                  configs: Configs = None, 
                  resources: Dict[str, Callable] = None
                  ) -> None:
@@ -489,11 +489,16 @@ class Database:
         elif script is None and path is None:
             raise ValueError("Both script and path are set. Provide one or the other, but not both.")
         else:
+            if not isinstance(script, str):
+                raise TypeError("Script must be a string, got {type(script).__name__}.")
             if path is not None:
                 # If a path is provided, read the script from the file.
                 if os.path.exists(path):
-                    with open(path, 'r') as file:
-                        script = file.read()
+                    try:
+                        with open(path, 'r') as file:
+                            script = file.read()
+                    except Exception as e:
+                        raise IOError(f"Error reading file {path}: {e}") from e
                 else:
                     raise FileNotFoundError(f"File not found: {path}")
         try:

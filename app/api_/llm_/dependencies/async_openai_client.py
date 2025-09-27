@@ -265,6 +265,7 @@ class AsyncOpenAIClient:
         self, 
         api_key: str = None,
         model: str = "gpt-4o",
+        small_model: str = "gpt-5-nano",
         embedding_model: str = "text-embedding-3-small",
         embedding_dimensions: int = 1536,
         temperature: float = 0.2,
@@ -291,6 +292,7 @@ class AsyncOpenAIClient:
         
         # Define model parameters
         self.model:                str = model
+        self.small_model:          str = small_model
         self.embedding_model:      str = embedding_model
         self.embedding_dimensions: int = embedding_dimensions
         self.temperature:          float = temperature
@@ -396,11 +398,38 @@ class AsyncOpenAIClient:
         Returns:
             List of relevant documents with similarity scores
         """
+        # Input validation
+        if not isinstance(query, str):
+            raise TypeError(f"Query must be a string, got {type(query).__name__} instead.")
+        else:
+            if not query.strip():
+                raise ValueError("Query must be a non-empty string.")
+
+        if gnis is not None and not isinstance(gnis, str):
+            raise TypeError(f"GNIS must be a string if provided, got {type(gnis).__name__} instead.")
+        else:
+            if not gnis.strip():
+                raise ValueError("GNIS must be a non-empty string if provided.")
+
+        if not isinstance(top_k, int):
+            raise TypeError(f"top_k must be an integer, got {type(top_k).__name__} instead.")
+        else:
+            if top_k <= 0:
+                raise ValueError(f"top_k must be a positive integer, got {top_k} instead.")
+
+
         # Generate embedding for the query
-        query_embedding = await self.get_embeddings(query)
+        try:
+            query_embedding = await self.get_embeddings(query)
+        except Exception as e:
+            logger.exception(f"Error generating embedding for query: {e}")
+            return []
+
         query_embedding = query_embedding[0] if query_embedding else None
-        
-        results = []
+
+        if not query_embedding:
+            logger.error("No embedding generated for the query.")
+            return []
 
         try:
             # Connect to the database
@@ -438,7 +467,7 @@ class AsyncOpenAIClient:
             if gnis:
                 sql_query += f" AND c.gnis = '{gnis}'"
                 
-            sql_query += """
+            sql_query += f"""
             )
             SELECT * FROM similarity_scores
             ORDER BY similarity_score DESC

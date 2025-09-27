@@ -26,11 +26,12 @@ duckdb_resources = {
 }
 
 # Initialize the singleton database instance with DuckDB resources.
-READ_ONLY_DB = Database(configs, resources=duckdb_resources)
+READ_ONLY_DB = None
+READ_ONLY_DB = Database(configs=configs, resources=duckdb_resources)
 
 # Close the database connection when the program is terminated.
 def close_db_connection():
-    if READ_ONLY_DB:
+    if READ_ONLY_DB is not None:
         READ_ONLY_DB.exit()
         print("Database connection closed.")
 

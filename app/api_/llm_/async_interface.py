@@ -182,7 +182,7 @@ class AsyncLLMInterface:
 
                 if "```" in choice_content:
                     choice_content = choice_content.split("```")[1].strip()
-                
+
                 logger.debug(f"Determine intent content after stripping: '{choice_content}'")
 
                 # Extract intent from the classifier response
