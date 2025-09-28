@@ -1,824 +1,738 @@
 """
-Pytest fixtures for upload_document method testing.
+Consolidated Fixtures for upload_document testing.
 
-This module provides comprehensive fixtures for testing the upload_document method
-of the App class. Fixtures are organized by functionality and follow the testing
-best practices outlined in the project guidelines.
-
-All fixtures are currently stubbed with NotImplementedError to follow the
-red-green-refactor testing approach.
+This module provides all fixtures needed for testing the upload_document method
+in a single, de-duplicated file. All fixtures use the centralized Factory
+and constants to eliminate code duplication across the test suite.
 """
+import datetime
+from typing import Dict, Any
+import tempfile
+import os
+import time
+
+
 import pytest
-
-# ============================================================================
-# File and Upload Fixtures
-# ============================================================================
-
-@pytest.fixture
-def valid_pdf_file():
-    """
-    A valid PDF file with extractable text content.
-    
-    Returns:
-        bytes: PDF file content as bytes
-        
+from freezegun import freeze_time
 
 
-    """
-    raise NotImplementedError("valid_pdf_file fixture needs to be implemented")
-
-
-@pytest.fixture
-def valid_docx_file():
-    """
-    A valid DOCX file with text content.
-    
-    Returns:
-        bytes: DOCX file content as bytes
-        
-
-
-    """
-    raise NotImplementedError("valid_docx_file fixture needs to be implemented")
-
-
-@pytest.fixture
-def valid_doc_file():
-    """
-    A valid DOC file with text content.
-    
-    Returns:
-        bytes: DOC file content as bytes
-        
-
-
-    """
-    raise NotImplementedError("valid_doc_file fixture needs to be implemented")
-
-
-@pytest.fixture
-def valid_txt_file():
-    """
-    A plain text file with known content.
-    
-    Returns:
-        bytes: TXT file content as bytes
-        
-
-
-    """
-    raise NotImplementedError("valid_txt_file fixture needs to be implemented")
-
-
-@pytest.fixture
-def empty_file():
-    """
-    A zero-byte file for testing empty file handling.
-    
-    Returns:
-        bytes: Empty file content (zero bytes)
-        
-
-
-    """
-    raise NotImplementedError("empty_file fixture needs to be implemented")
-
-
-@pytest.fixture
-def oversized_file():
-    """
-    A file that exceeds maximum size limits.
-    
-    Returns:
-        bytes: File content exceeding size limits
-        
-
-
-    """
-    raise NotImplementedError("oversized_file fixture needs to be implemented")
-
-
-@pytest.fixture
-def corrupted_pdf_file():
-    """
-    A corrupted PDF file that cannot be processed.
-    
-    Returns:
-        bytes: Corrupted PDF file content
-        
-
-
-    """
-    raise NotImplementedError("corrupted_pdf_file fixture needs to be implemented")
-
-
-@pytest.fixture
-def unsupported_file_jpg():
-    """
-    An unsupported JPG file for testing file type validation.
-    
-    Returns:
-        bytes: JPG file content
-        
-
-
-    """
-    raise NotImplementedError("unsupported_file_jpg fixture needs to be implemented")
-
-
-@pytest.fixture
-def unicode_filename_file():
-    """
-    A file with Unicode characters in the filename.
-    
-    Returns:
-        tuple[bytes, str]: File content and Unicode filename
-        
-
-
-    """
-    raise NotImplementedError("unicode_filename_file fixture needs to be implemented")
-
-
-@pytest.fixture
-def special_chars_filename_file():
-    """
-    A file with special characters and spaces in filename.
-    
-    Returns:
-        tuple[bytes, str]: File content and filename with special characters
-        
-
-
-    """
-    raise NotImplementedError("special_chars_filename_file fixture needs to be implemented")
+from ._utilities import TestDataFactory as Factory
+from ._constants import (
+    BAD_INPUT_TYPES,
+    CID_PATTERN,
+    CONCURRENCY_LEVELS,
+    DEFAULT_CONFIG_VALUES,
+    ERROR_CODES,
+    ERROR_RESPONSE_FIELDS,
+    FILE_SIZE_LIMITS,
+    FILE_SIZE_PATTERN,
+    FILENAME_PATTERNS,
+    HTTP_STATUS_CODES,
+    ISO_TIMESTAMP_PATTERN,
+    MIME_TYPES,
+    RESPONSE_FIELD_TYPES,
+    RESPONSE_VALIDATION_RULES,
+    SUCCESS_RESPONSE_FIELDS,
+    SUPPORTED_FILE_TYPES,
+    TEST_DATA_SIZES,
+    TEXT_CONTENT_SAMPLES,
+    TIMING_CONSTANTS,
+    UNSUPPORTED_FILE_TYPES,
+    VALID_STATUS_VALUES,
+)
 
 
 # ============================================================================
-# UploadFile Mock Fixtures
+# File Content Fixtures - All file types handled by Factory
 # ============================================================================
 
 @pytest.fixture
-def mock_upload_file(valid_pdf_file):
-    """
-    A mock UploadFile object for valid PDF testing.
-    
-    Args:
-        valid_pdf_file: PDF file content from fixture
-        
-    Returns:
-        Mock: UploadFile mock object with PDF content
-        
+def filename_patterns():
+    """A dictionary of filename patterns for various test scenarios."""
+    return FILENAME_PATTERNS.copy()
 
-
-    """
-    raise NotImplementedError("mock_upload_file fixture needs to be implemented")
+@pytest.fixture
+def valid_file_contents():
+    """A dictionary of valid file contents for all supported types."""
+    return {
+        'pdf': Factory.create_file_content(
+            'pdf',
+            text_content=TEXT_CONTENT_SAMPLES['multiline'],
+            size='medium'
+        ),
+        'docx': Factory.create_file_content(
+            'docx',
+            text_content=TEXT_CONTENT_SAMPLES['multiline'],
+            size='medium'
+        ),
+        'doc': Factory.create_file_content(
+            'doc',
+            text_content=TEXT_CONTENT_SAMPLES['multiline'],
+            size='medium'
+        ),
+        'txt': Factory.create_file_content(
+            'txt',
+            text_content=TEXT_CONTENT_SAMPLES['basic'],
+            size='small'
+        )
+    }
 
 
 @pytest.fixture
-def mock_upload_file_docx(valid_docx_file):
-    """
-    A mock UploadFile object for DOCX testing.
-    
-    Args:
-        valid_docx_file: DOCX file content from fixture
-        
-    Returns:
-        Mock: UploadFile mock object with DOCX content
-        
-
-
-    """
-    raise NotImplementedError("mock_upload_file_docx fixture needs to be implemented")
-
-
-@pytest.fixture
-def mock_upload_file_empty(empty_file):
-    """
-    A mock UploadFile object for empty file testing.
-    
-    Args:
-        empty_file: Empty file content from fixture
-        
-    Returns:
-        Mock: UploadFile mock object with empty content
-        
-
-
-    """
-    raise NotImplementedError("mock_upload_file_empty fixture needs to be implemented")
+def edge_case_file_contents():
+    """A dictionary of file contents for various edge case scenarios."""
+    return {
+        'empty': Factory.create_file_content('empty'),
+        'oversized_pdf': Factory.create_file_content('pdf', size='oversized'),
+        'corrupted_pdf': Factory.create_file_content(
+            'pdf',
+            text_content=TEXT_CONTENT_SAMPLES['basic'],
+            corruption='header'
+        ),
+        'unsupported_jpg': Factory.create_file_content('jpg')
+    }
 
 
 @pytest.fixture
-def mock_upload_file_oversized(oversized_file):
-    """
-    A mock UploadFile object for oversized file testing.
-    
-    Args:
-        oversized_file: Oversized file content from fixture
-        
-    Returns:
-        Mock: UploadFile mock object with oversized content
-        
-
-
-    """
-    raise NotImplementedError("mock_upload_file_oversized fixture needs to be implemented")
-
-
-@pytest.fixture
-def mock_upload_file_corrupted(corrupted_pdf_file):
-    """
-    A mock UploadFile object for corrupted file testing.
-    
-    Args:
-        corrupted_pdf_file: Corrupted PDF content from fixture
-        
-    Returns:
-        Mock: UploadFile mock object with corrupted content
-        
-
-
-    """
-    raise NotImplementedError("mock_upload_file_corrupted fixture needs to be implemented")
+def filename_edge_case_files():
+    """A dictionary of files with edge case filenames."""
+    return {
+        'unicode': {
+            'content': Factory.create_file_content(
+                'txt',
+                text_content=TEXT_CONTENT_SAMPLES['unicode']
+            ),
+            'filename': "测试文档_ñáéíóú_файл.txt"
+        },
+        'special_chars': {
+            'content': Factory.create_file_content(
+                'txt',
+                text_content=TEXT_CONTENT_SAMPLES['basic']
+            ),
+            'filename': "test file & document (copy) [1] - final.txt"
+        }
+    }
 
 
 # ============================================================================
-# Client and Session Fixtures
+# UploadFile Mock Fixtures - All use Factory
 # ============================================================================
 
 @pytest.fixture
-def valid_client_cid():
-    """
-    A valid client CID string.
-    
-    Returns:
-        str: Valid client CID in proper format
-        
+def mock_upload_files(valid_file_contents, edge_case_file_contents, filename_edge_case_files):
+    """A dictionary of mock UploadFile objects for various test scenarios."""
+    files = {}
 
+    # Create mocks for valid file types
+    for file_type, content in valid_file_contents.items():
+        ext = f".{file_type}"
+        files[file_type] = Factory.create_mock('upload_file', {
+            'content': content,
+            'filename': f'test_document.{file_type}',
+            'content_type': MIME_TYPES[ext],
+            'size': len(content)
+        })
 
-    """
-    raise NotImplementedError("valid_client_cid fixture needs to be implemented")
+    # Create mocks for edge case file contents
+    files['empty'] = Factory.create_mock('upload_file', {
+        'content': edge_case_file_contents['empty'],
+        'filename': 'empty_file.txt',
+        'content_type': MIME_TYPES['.txt'],
+        'size': 0
+    })
+    files['oversized'] = Factory.create_mock('upload_file', {
+        'content': edge_case_file_contents['oversized_pdf'],
+        'filename': 'huge_file.pdf',
+        'content_type': MIME_TYPES['.pdf'],
+        'size': len(edge_case_file_contents['oversized_pdf'])
+    })
+    files['corrupted'] = Factory.create_mock('upload_file', {
+        'content': edge_case_file_contents['corrupted_pdf'],
+        'filename': 'corrupted_document.pdf',
+        'content_type': MIME_TYPES['.pdf'],
+        'size': len(edge_case_file_contents['corrupted_pdf'])
+    })
+    files['unsupported'] = Factory.create_mock('upload_file', {
+        'content': edge_case_file_contents['unsupported_jpg'],
+        'filename': 'image.jpg',
+        'content_type': MIME_TYPES['.jpg'],
+        'size': len(edge_case_file_contents['unsupported_jpg'])
+    })
 
+    # Create mocks for filename edge cases
+    for name, data in filename_edge_case_files.items():
+        content = data['content']
+        filename = data['filename']
+        ext = f".{filename.split('.')[-1]}"
+        files[f'{name}_name'] = Factory.create_mock('upload_file', {
+            'content': content,
+            'filename': filename,
+            'content_type': MIME_TYPES.get(ext, 'application/octet-stream'),
+            'size': len(content)
+        })
 
-@pytest.fixture
-def invalid_client_cid():
-    """
-    An invalid client CID format.
-    
-    Returns:
-        str: Invalid client CID format
-        
-
-
-    """
-    raise NotImplementedError("invalid_client_cid fixture needs to be implemented")
-
-
-@pytest.fixture
-def none_client_cid():
-    """
-    None value for client_cid parameter.
-    
-    Returns:
-        None: None value for testing optional parameter
-        
-
-
-    """
-    raise NotImplementedError("none_client_cid fixture needs to be implemented")
-
-
-@pytest.fixture
-def multiple_client_cids():
-    """
-    List of different valid client CIDs for concurrent testing.
-    
-    Returns:
-        List[str]: Multiple valid client CIDs
-        
-
-
-    """
-    raise NotImplementedError("multiple_client_cids fixture needs to be implemented")
-
-
-# ============================================================================
-# Database and Mock Fixtures
-# ============================================================================
-
-@pytest.fixture
-def mock_database():
-    """
-    A mock database instance for testing database operations.
-    
-    Returns:
-        Mock: Database mock with standard methods
-        
-
-
-    """
-    raise NotImplementedError("mock_database fixture needs to be implemented")
-
-
-@pytest.fixture
-def database_failure_mock():
-    """
-    A mock database that simulates failure conditions.
-    
-    Returns:
-        Mock: Database mock that raises exceptions
-        
-
-
-    """
-    raise NotImplementedError("database_failure_mock fixture needs to be implemented")
-
-
-@pytest.fixture
-def mock_app_instance():
-    """
-    A mock App instance with mocked dependencies.
-    
-    Returns:
-        Mock: App instance mock with all dependencies
-        
-
-
-    """
-    raise NotImplementedError("mock_app_instance fixture needs to be implemented")
-
-
-@pytest.fixture
-def mock_configs():
-    """
-    Mock configuration object.
-    
-    Returns:
-        Mock: Configuration object mock
-        
-
-
-    """
-    raise NotImplementedError("mock_configs fixture needs to be implemented")
-
-
-@pytest.fixture
-def mock_resources():
-    """
-    Mock resources dictionary.
-    
-    Returns:
-        Dict[str, Mock]: Mock resources dictionary
-        
-
-
-    """
-    raise NotImplementedError("mock_resources fixture needs to be implemented")
+    return files
 
 
 # ============================================================================
-# Response and Validation Fixtures
+# Client and Session Fixtures - All use Factory
 # ============================================================================
 
 @pytest.fixture
-def expected_success_response_fields():
-    """
-    List of required fields in successful upload response.
-    
-    Returns:
-        List[str]: Field names required in success response
-        
-
-
-    """
-    raise NotImplementedError("expected_success_response_fields fixture needs to be implemented")
-
-
-@pytest.fixture
-def expected_error_response_fields():
-    """
-    List of required fields in error upload response.
-    
-    Returns:
-        List[str]: Field names required in error response
-        
-
-
-    """
-    raise NotImplementedError("expected_error_response_fields fixture needs to be implemented")
+def client_cid_test_cases():
+    """Dictionary containing various client CID test cases."""
+    return {
+        'valid': Factory.make_cid("test_client_session_001"),
+        'invalid': Factory.make_cid(invalid=True, format_type='malformed'),
+        'none': None,
+        'multiple': [Factory.make_cid(f"client_session_{i:03d}") for i in range(1, 6)],
+        'concurrent': [Factory.make_cid(f"concurrent_session_{i}")for i in range(10)]
+    }
 
 
 @pytest.fixture
-def valid_cid_pattern():
-    """
-    Regex pattern for valid CID format validation.
-    
-    Returns:
-        Pattern[str]: Compiled regex pattern for CID validation
-        
-
-
-    """
-    raise NotImplementedError("valid_cid_pattern fixture needs to be implemented")
-
-
-@pytest.fixture
-def iso_timestamp_pattern():
-    """
-    Regex pattern for ISO timestamp format validation.
-    
-    Returns:
-        Pattern[str]: Compiled regex pattern for ISO timestamp
-        
-
-
-    """
-    raise NotImplementedError("iso_timestamp_pattern fixture needs to be implemented")
+def client_cid_variations():
+    """Dictionary containing various client CID test cases."""
+    return {
+        'valid': Factory.make_cid("valid_test_client"),
+        'invalid': Factory.make_cid(invalid=True, format_type='malformed'),
+        'none': None,
+        'empty_string': "",
+        'too_short': Factory.make_cid(invalid=True, format_type='short'),
+        'too_long': Factory.make_cid(invalid=True, format_type='long'),
+        'wrong_prefix': Factory.make_cid(invalid=True, format_type='wrong_prefix'),
+        'non_string': 12345,
+        'unicode': Factory.make_cid(invalid=True, format_type='unicode'),
+        'with_spaces': Factory.make_cid(invalid=True, format_type='with_spaces'),
+        'special_chars': Factory.make_cid(invalid=True, format_type='special_chars')
+    }
 
 
 # ============================================================================
-# Content and Text Fixtures
+# Database and Mock Fixtures - All use Factory
 # ============================================================================
 
+
 @pytest.fixture
-def known_text_content():
-    """
-    Known text content for content extraction testing.
-    
-    Returns:
-        str: Known text content for validation
-        
+def mock_parameters():
+    """A dictionary of mock parameters for testing."""
+    return {
+        'database': Factory.create_mock('database'),
+        'configs': Factory.create_mock('configs', DEFAULT_CONFIG_VALUES),
+        'resources': Factory.create_mock('resources')
+    }
 
-
-    """
-    raise NotImplementedError("known_text_content fixture needs to be implemented")
 
 
 @pytest.fixture
-def pdf_with_known_text():
-    """
-    PDF file containing specific known text for extraction testing.
-    
-    Returns:
-        tuple[bytes, str]: PDF content and expected extracted text
-        
-
-
-    """
-    raise NotImplementedError("pdf_with_known_text fixture needs to be implemented")
+def mock_database_failures():
+    """A dictionary of mock databases that simulate various failure conditions."""
+    return {
+        'generic': Factory.create_mock('database', should_fail=True, failure_type='generic'),
+        'connection': Factory.create_mock('database', should_fail=True, failure_type='connection'),
+        'constraint': Factory.create_mock('database', should_fail=True, failure_type='constraint'),
+        'timeout': Factory.create_mock('database', should_fail=True, failure_type='timeout')
+    }
 
 
 @pytest.fixture
-def unicode_text_content():
-    """
-    Text content with Unicode characters.
-    
-    Returns:
-        str: Text content containing Unicode characters
-        
-
-
-    """
-    raise NotImplementedError("unicode_text_content fixture needs to be implemented")
+def mock_resources_with_db_failure():
+    """Mock resources dictionary with failing database."""
+    return Factory.create_mock('resources', {
+        'database': {'should_fail': True}
+    })
 
 
 @pytest.fixture
-def large_text_content():
-    """
-    Large text content for testing content processing limits.
-    
-    Returns:
-        str: Large text content for limit testing
-        
+def mock_app_instance(mock_configs, mock_resources):
+    """A mock App instance with mocked dependencies."""
+    return Factory.create_mock('app', {
+        'configs': mock_configs,
+        'resources': mock_resources
+    })
 
 
-    """
-    raise NotImplementedError("large_text_content fixture needs to be implemented")
+@pytest.fixture
+def mock_app_with_db_failure(mock_configs, mock_resources_with_db_failure):
+    """A mock App instance with failing database dependencies."""
+    return Factory.create_mock('app', {
+        'configs': mock_configs,
+        'resources': mock_resources_with_db_failure
+    }, should_fail=True, failure_type='database')
 
 
 # ============================================================================
-# Error Simulation Fixtures
+# Response and Validation Fixtures - All use constants and Factory
 # ============================================================================
 
 @pytest.fixture
-def io_error_simulation():
-    """
-    Fixture that simulates IO errors during file operations.
-    
-    Returns:
-        Mock: Mock object that raises IOError when called
-        
-
-
-    """
-    raise NotImplementedError("io_error_simulation fixture needs to be implemented")
+def expected_response_fields():
+    """Dictionary of required fields for success and error responses."""
+    return {
+        'success': list(SUCCESS_RESPONSE_FIELDS),
+        'error': list(ERROR_RESPONSE_FIELDS)
+    }
 
 
 @pytest.fixture
-def value_error_simulation():
-    """
-    Fixture that simulates content extraction failures.
-    
-    Returns:
-        Mock: Mock object that raises ValueError when called
-        
-
-
-    """
-    raise NotImplementedError("value_error_simulation fixture needs to be implemented")
+def test_patterns():
+    """Dictionary of regex patterns for validation."""
+    return {
+        'cid': CID_PATTERN,
+        'iso_timestamp': ISO_TIMESTAMP_PATTERN,
+        'file_size': FILE_SIZE_PATTERN
+    }
 
 
 @pytest.fixture
-def type_error_simulation():
-    """
-    Fixture that simulates parameter type errors.
-    
-    Returns:
-        Mock: Mock object that raises TypeError when called
-        
-
-
-    """
-    raise NotImplementedError("type_error_simulation fixture needs to be implemented")
+def validation_sets():
+    """Dictionary of sets for validation purposes."""
+    return {
+        'valid_status_values': VALID_STATUS_VALUES.copy(),
+        'valid_error_codes': set(ERROR_CODES.values())
+    }
 
 
 @pytest.fixture
-def http_exception_simulation():
-    """
-    Fixture that simulates various HTTP exceptions.
-    
-    Returns:
-        Dict[int, Mock]: Mock objects for different HTTP status codes
-        
+def sample_responses():
+    """A dictionary of sample success and error responses."""
+    return {
+        'success': Factory.create_response('success', {
+            'cid': Factory.make_cid("sample_success"),
+            'filename': 'test_document.pdf',
+            'file_size': FILE_SIZE_LIMITS['medium_file']
+        }),
+        'error': Factory.create_response(
+            'error',
+            {'message': 'Upload failed: Invalid file type'},
+            error_code=ERROR_CODES['INVALID_FILE_TYPE']
+        )
+    }
 
 
-    """
-    raise NotImplementedError("http_exception_simulation fixture needs to be implemented")
+@pytest.fixture
+def response_field_types():
+    """Expected types for response fields."""
+    return RESPONSE_FIELD_TYPES.copy()
+
+
+@pytest.fixture
+def response_validation_rules():
+    """Validation rules for response fields."""
+    return RESPONSE_VALIDATION_RULES.copy()
 
 
 # ============================================================================
-# Concurrent Testing Fixtures
+# Content and Text Fixtures - All use constants
 # ============================================================================
 
 @pytest.fixture
-def multiple_upload_files():
-    """
-    Multiple different files for concurrent upload testing.
-    
-    Returns:
-        List[bytes]: Multiple different file contents
-        
-
-
-    """
-    raise NotImplementedError("multiple_upload_files fixture needs to be implemented")
-
-
-@pytest.fixture
-def identical_upload_files():
-    """
-    Multiple identical files for CID consistency testing.
-    
-    Returns:
-        List[bytes]: Multiple identical file contents
-        
-
-
-    """
-    raise NotImplementedError("identical_upload_files fixture needs to be implemented")
+def text_content():
+    """Dictionary of various text content samples for testing."""
+    return {
+        'known': TEXT_CONTENT_SAMPLES['multiline'],
+        'unicode': TEXT_CONTENT_SAMPLES['unicode'],
+        'large': TEXT_CONTENT_SAMPLES['large'],
+        'minimal': TEXT_CONTENT_SAMPLES['minimal'],
+        'empty': TEXT_CONTENT_SAMPLES['empty'],
+        'whitespace': TEXT_CONTENT_SAMPLES['whitespace'],
+        'legal': TEXT_CONTENT_SAMPLES['legal']
+    }
 
 
 @pytest.fixture
-def concurrent_client_sessions():
-    """
-    Multiple client sessions for concurrent testing.
-    
-    Returns:
-        List[str]: Multiple client CIDs for concurrent testing
-        
+def pdf_with_known_text(known_text_content):
+    """PDF file containing specific known text for extraction testing."""
+    pdf_content = Factory.create_file_content('pdf', text_content=known_text_content)
+    return pdf_content, known_text_content
 
 
-    """
-    raise NotImplementedError("concurrent_client_sessions fixture needs to be implemented")
+@pytest.fixture
+def docx_with_unicode_text(unicode_text_content):
+    """DOCX file containing Unicode text for extraction testing."""
+    docx_content = Factory.create_file_content('docx', text_content=unicode_text_content)
+    return docx_content, unicode_text_content
+
+
+@pytest.fixture
+def txt_with_legal_content(legal_document_sample):
+    """TXT file containing legal document sample."""
+    txt_content = Factory.create_file_content('txt', text_content=legal_document_sample)
+    return txt_content, legal_document_sample
+
+
+@pytest.fixture
+def files_with_identical_content(known_text_content):
+    """Multiple files with identical content for CID consistency testing."""
+    files = Factory.create_multiple_files(
+        count=4,
+        file_type='pdf',
+        identical_content=True,
+        base_filename='identical_document'
+    )
+    # Add expected text for each file
+    return [(content, filename, known_text_content) for content, filename in files]
+
+
+@pytest.fixture
+def content_extraction_test_cases():
+    """Various content types for comprehensive extraction testing."""
+    test_cases = {}
+    for content_type, text_content in TEXT_CONTENT_SAMPLES.items():
+        if content_type != 'large':  # Skip large for this fixture
+            content = Factory.create_file_content('txt', text_content=text_content)
+            test_cases[content_type] = (content, text_content)
+    return test_cases
+
+
+@pytest.fixture
+def text_processing_edge_cases():
+    """Edge cases for text processing validation."""
+    return {
+        "null_bytes": b"Content with \x00 null bytes",
+        "mixed_encoding": "Mixed encoding: café".encode('utf-8') + b'\xff\xfe',
+        "very_long_line": ("A" * 10000).encode('utf-8'),
+        "control_characters": "Content with \t tabs \r carriage returns \n newlines".encode('utf-8'),
+        "binary_content": Factory.create_file_content('jpg'),
+        "partial_utf8": b'\xc3\xa9\xc3',  # Incomplete UTF-8 sequence
+    }
+
+
+@pytest.fixture
+def expected_content_lengths():
+    """Expected content lengths for validation testing."""
+    return {
+        content_type: len(text_content)
+        for content_type, text_content in TEXT_CONTENT_SAMPLES.items()
+        if content_type != 'large'
+    }
 
 
 # ============================================================================
-# Time and Timestamp Fixtures
+# Error Simulation Fixtures - All use Factory
 # ============================================================================
 
 @pytest.fixture
-def freeze_time():
-    """
-    Freezes time for timestamp testing.
-    
-    Returns:
-        datetime: Frozen datetime for consistent testing
-        
-
-
-    """
-    raise NotImplementedError("freeze_time fixture needs to be implemented")
+def error_simulations():
+    """A dictionary of mocks that simulate various error conditions."""
+    type_ = "error"
+    return {
+        'io': Factory.create_mock(type_, failure_type='io_error'),
+        'value': Factory.create_mock(type_, failure_type='value_error'),
+        'type': Factory.create_mock(type_, failure_type='type_error'),
+        'http_400': Factory.create_mock(type_, failure_type='http_400'),
+        'http_413': Factory.create_mock(type_, failure_type='http_413'),
+        'http_415': Factory.create_mock(type_, failure_type='http_415'),
+        'http_500': Factory.create_mock(type_, failure_type='http_500'),
+    }
 
 
 @pytest.fixture
-def current_iso_timestamp():
-    """
-    Current timestamp in ISO format.
-    
-    Returns:
-        str: Current timestamp in ISO format
-        
+def file_read_error_simulation():
+    """Simulates file read errors during upload processing."""
+    return Factory.create_mock('upload_file', should_fail=True, failure_type='read_error')
 
 
-    """
-    raise NotImplementedError("current_iso_timestamp fixture needs to be implemented")
+@pytest.fixture
+def content_extraction_error_simulation():
+    """Simulates content extraction failures for various file types."""
+    return {
+        file_type.strip('.'): Factory.create_mock('error', failure_type='value_error')
+        for file_type in SUPPORTED_FILE_TYPES
+    }
+
+
+@pytest.fixture
+def cid_generation_error_simulation():
+    """Simulates CID generation failures."""
+    return Factory.create_mock('error', failure_type='value_error')
+
+
+@pytest.fixture
+def database_error_simulations():
+    """Simulates various database error conditions."""
+    return {
+        'connection_error': Factory.create_mock('database', should_fail=True, failure_type='connection'),
+        'timeout_error': Factory.create_mock('database', should_fail=True, failure_type='timeout'),
+        'constraint_error': Factory.create_mock('database', should_fail=True, failure_type='constraint'),
+        'permission_error': Factory.create_mock('error', failure_type='permission_error'),
+        'disk_full_error': Factory.create_mock('error', failure_type='io_error')
+    }
+
+@pytest.fixture
+def processing_error_simulations():
+    """A dictionary of mocks that simulate various processing-related errors."""
+    return {
+        'network': Factory.create_mock('error', failure_type='network_error'),
+        'memory': Factory.create_mock('error', failure_type='memory_error'),
+        'permission': Factory.create_mock('error', failure_type='permission_error'),
+        'timeout': Factory.create_mock('error', failure_type='timeout_error'),
+        'encoding': Factory.create_mock('error', failure_type='encoding_error'),
+    }
+
+
+# ============================================================================
+# Time and Constants Fixtures - All use constants
+# ============================================================================
+
+@pytest.fixture
+def freeze_time_fixture():
+    """Freezes time for timestamp testing."""
+    frozen_time = datetime.datetime(2025, 9, 27, 10, 30, 0, tzinfo=datetime.timezone.utc)
+    with freeze_time(frozen_time):
+        yield frozen_time
 
 
 @pytest.fixture
 def timestamp_tolerance():
-    """
-    Acceptable timestamp tolerance for timing tests.
-    
-    Returns:
-        float: Tolerance in seconds for timestamp comparisons
-        
+    """Acceptable timestamp tolerance for timing tests."""
+    return TIMING_CONSTANTS['timestamp_tolerance_seconds']
 
 
-    """
-    raise NotImplementedError("timestamp_tolerance fixture needs to be implemented")
+@pytest.fixture
+def test_timestamps():
+    """Various timestamp formats for testing."""
+    return {
+        'base_time': datetime.datetime(2025, 9, 27, 10, 30, 0, tzinfo=datetime.timezone.utc),
+        'valid_timestamp': Factory.create_timestamp(),
+        'past_timestamp': Factory.create_timestamp(-3600),
+        'future_timestamp': Factory.create_timestamp(3600),
+        'invalid_format': '2025-09-27 10:30:00',
+        'invalid_string': 'not-a-timestamp'
+    }
 
-
-# ============================================================================
-# Constants and Test Data Fixtures
-# ============================================================================
 
 @pytest.fixture
 def test_constants():
-    """
-    Dictionary of test constants and values.
-    
-    Returns:
-        Dict[str, Any]: Dictionary containing test constants
-        
-
-
-    """
-    raise NotImplementedError("test_constants fixture needs to be implemented")
-
-
-@pytest.fixture
-def file_size_limits():
-    """
-    Dictionary of file size limits for testing.
-    
-    Returns:
-        Dict[str, int]: File size limits in bytes
-        
-
-
-    """
-    raise NotImplementedError("file_size_limits fixture needs to be implemented")
-
-
-@pytest.fixture
-def supported_file_types():
-    """
-    List of supported file extensions.
-    
-    Returns:
-        List[str]: Supported file extensions
-        
-
-
-    """
-    raise NotImplementedError("supported_file_types fixture needs to be implemented")
-
-
-@pytest.fixture
-def unsupported_file_types():
-    """
-    List of unsupported file extensions.
-    
-    Returns:
-        List[str]: Unsupported file extensions
-        
-
-
-    """
-    raise NotImplementedError("unsupported_file_types fixture needs to be implemented")
+    """A dictionary of all test constants and values."""
+    return {
+        'file_size_limits': FILE_SIZE_LIMITS.copy(),
+        'bad_input_types': BAD_INPUT_TYPES.copy(),
+        'test_data_sizes': TEST_DATA_SIZES.copy(),
+        'timestamp_tolerance': TIMING_CONSTANTS['timestamp_tolerance_seconds'],
+        'processing_timeout': TIMING_CONSTANTS['default_processing_timeout'],
+        'concurrent_timeout': TIMING_CONSTANTS['concurrent_operation_timeout'],
+        'valid_extensions': SUPPORTED_FILE_TYPES.copy(),
+        'invalid_extensions': UNSUPPORTED_FILE_TYPES.copy(),
+        'mime_types': MIME_TYPES.copy(),
+        'error_codes': ERROR_CODES.copy(),
+        'http_status_codes': HTTP_STATUS_CODES.copy()
+    }
 
 
 # ============================================================================
-# Parametrized Test Data Fixtures
+# Parametrized Test Data Fixtures - All use constants
 # ============================================================================
 
 @pytest.fixture(params=['pdf', 'docx', 'doc', 'txt'])
 def valid_file_types(request):
-    """
-    Parametrized fixture for all valid file types.
-    
-    Args:
-        request: Pytest request object with parameter values
-        
-    Returns:
-        str: File extension for current test parameter
-        
-
-
-    """
-    raise NotImplementedError("valid_file_types fixture needs to be implemented")
+    """Parametrized fixture for all valid file types."""
+    return f".{request.param}"
 
 
 @pytest.fixture(params=['jpg', 'png', 'mp4', 'exe'])
 def invalid_file_types(request):
-    """
-    Parametrized fixture for all invalid file types.
-    
-    Args:
-        request: Pytest request object with parameter values
-        
-    Returns:
-        str: File extension for current test parameter
-        
-
-
-    """
-    raise NotImplementedError("invalid_file_types fixture needs to be implemented")
+    """Parametrized fixture for all invalid file types."""
+    return f".{request.param}"
 
 
 @pytest.fixture(params=[None, 'valid_cid', 'invalid_cid'])
-def client_cid_variations(request):
-    """
-    Parametrized fixture for different client_cid values.
-    
-    Args:
-        request: Pytest request object with parameter values
-        
-    Returns:
-        Optional[str]: Client CID variation for current test parameter
-        
+def client_cid_variations_param(request, valid_client_cid, invalid_client_cid):
+    """Parametrized fixture for different client_cid values."""
+    match request.param:
+        case None:
+            return None
+        case 'valid_cid':
+            return valid_client_cid
+        case 'invalid_cid':
+            return invalid_client_cid
 
 
-    """
-    raise NotImplementedError("client_cid_variations fixture needs to be implemented")
+@pytest.fixture(params=['small', 'medium', 'large'])
+def file_size_variations(request, test_data_sizes):
+    """Parametrized fixture for different file sizes."""
+    return test_data_sizes[request.param]
+
+
+@pytest.fixture(params=[1, 5, 10, 20])
+def concurrency_levels(request):
+    """Parametrized fixture for different concurrency levels."""
+    return request.param
+
+
+@pytest.fixture(params=['success', 'file_error', 'database_error', 'processing_error'])
+def error_scenarios(request):
+    """Parametrized fixture for different error scenarios."""
+    return request.param
 
 
 # ============================================================================
-# Helper Function Fixtures
+# Concurrent Testing Fixtures - All use Factory
+# ============================================================================
+
+@pytest.fixture
+def concurrent_upload_files():
+    """A dictionary of file sets for concurrent upload testing."""
+    args = (5, 'pdf')
+    different_files_data = Factory.create_multiple_files(*args, identical_content=False)
+    identical_files_data = Factory.create_multiple_files(*args, identical_content=True)
+    return {
+        'different': [content for content, filename in different_files_data],
+        'identical': [content for content, filename in identical_files_data]
+    }
+
+
+# ============================================================================
+# Helper Function Fixtures - All use Factory or constants
 # ============================================================================
 
 @pytest.fixture
 def create_temp_file():
-    """
-    Helper function to create temporary test files.
+    """Helper function to create temporary test files."""
+
+    def _create_temp_file(content: bytes, suffix: str = '.tmp') -> str:
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        try:
+            with os.fdopen(fd, 'wb') as tmp_file:
+                tmp_file.write(content)
+        except Exception:
+            os.close(fd)
+            os.unlink(path)
+            raise
+        return path
     
-    Returns:
-        Callable: Function that creates temporary files
-        
-
-
-    """
-    raise NotImplementedError("create_temp_file fixture needs to be implemented")
+    return _create_temp_file
 
 
 @pytest.fixture
 def verify_database_record():
-    """
-    Helper function to verify database record creation.
+    """Helper function to verify database record creation."""
+    def _verify_database_record(db_mock, expected_cid: str, expected_data: Dict[str, Any]) -> bool:
+        if not db_mock.execute.called:
+            return False
+        call_args = db_mock.execute.call_args
+        return call_args is not None
     
-    Returns:
-        Callable: Function that verifies database records
-        
-
-
-    """
-    raise NotImplementedError("verify_database_record fixture needs to be implemented")
-
-
-@pytest.fixture
-def assert_response_format():
-    """
-    Helper function to validate response format.
-    
-    Returns:
-        Callable: Function that validates response format
-        
-
-
-    """
-    raise NotImplementedError("assert_response_format fixture needs to be implemented")
+    return _verify_database_record
 
 
 @pytest.fixture
 def generate_test_cid():
-    """
-    Helper function to generate test CIDs.
+    """Helper function to generate test CIDs."""
+    return Factory.make_cid
+
+
+@pytest.fixture
+def timing_utilities():
+    """Utilities for timing and performance testing."""
+
     
-    Returns:
-        Callable: Function that generates valid test CIDs
+    def measure_execution_time(func, *args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        return result, end_time - start_time
+    
+    def assert_execution_time(max_seconds: float):
+        class TimingAssertion:
+            def __enter__(self):
+                self.start_time = time.time()
+                return self
+            
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                elapsed = time.time() - self.start_time
+                assert elapsed <= max_seconds, f"Execution took {elapsed:.2f}s, expected <= {max_seconds}s"
         
+        return TimingAssertion()
+    
+    return {
+        'measure_execution_time': measure_execution_time,
+        'assert_execution_time': assert_execution_time
+    }
 
 
-    """
-    raise NotImplementedError("generate_test_cid fixture needs to be implemented")
+# ============================================================================
+# Comprehensive Test Scenario Fixtures
+# ============================================================================
+
+@pytest.fixture
+def all_file_type_scenarios():
+    """All combinations of valid file types with different content."""
+    scenarios = []
+    for file_type in ['pdf', 'docx', 'doc', 'txt']:
+        for content_type, text_content in TEXT_CONTENT_SAMPLES.items():
+            if content_type not in ['large', 'empty']:  # Skip problematic content
+                content = Factory.create_file_content(file_type, text_content=text_content)
+                mock_file = Factory.create_mock('upload_file', {
+                    'content': content,
+                    'filename': f'test_{content_type}.{file_type}',
+                    'content_type': MIME_TYPES[f'.{file_type}'],
+                    'size': len(content)
+                })
+                scenarios.append((file_type, content_type, mock_file))
+    return scenarios
+
+
+@pytest.fixture
+def all_error_scenarios():
+    """All combinations of error types and failure conditions."""
+    scenarios = {}
+    
+    # File-related errors
+    scenarios['file_errors'] = {
+        'empty': Factory.create_mock('upload_file', {'content': b'', 'size': 0}),
+        'oversized': Factory.create_mock('upload_file', {
+            'content': Factory.create_file_content('pdf', size='oversized'),
+            'size': FILE_SIZE_LIMITS['oversized']
+        }),
+        'corrupted': Factory.create_mock('upload_file', {
+            'content': Factory.create_file_content('pdf', corruption='header')
+        }),
+        'unsupported': Factory.create_mock('upload_file', {
+            'content': Factory.create_file_content('jpg'),
+            'content_type': MIME_TYPES['.jpg'],
+            'filename': 'image.jpg'
+        })
+    }
+
+    # Database errors
+    scenarios['database_errors'] = {
+        'connection': Factory.create_mock('database', should_fail=True, failure_type='connection'),
+        'constraint': Factory.create_mock('database', should_fail=True, failure_type='constraint'),
+        'timeout': Factory.create_mock('database', should_fail=True, failure_type='timeout')
+    }
+    
+    # Processing errors
+    scenarios['processing_errors'] = {
+        'io_error': Factory.create_mock('error', failure_type='io_error'),
+        'extraction_error': Factory.create_mock('error', failure_type='value_error'),
+        'memory_error': Factory.create_mock('error', failure_type='memory_error')
+    }
+    
+    return scenarios
+
+
+@pytest.fixture
+def concurrent_test_matrix():
+    """Matrix of concurrent testing scenarios."""
+    matrix = []
+    limit = 4
+    for level in CONCURRENCY_LEVELS[:limit]:
+        # Same files
+        same_files = Factory.create_multiple_files(level, 'pdf', identical_content=True)
+        matrix.append(('same_files', level, same_files))
+        
+        # Different files  
+        diff_files = Factory.create_multiple_files(level, 'pdf', identical_content=False)
+        matrix.append(('different_files', level, diff_files))
+        
+        # Mixed file types
+        mixed_files = []
+        for idx, file_type in enumerate(['pdf', 'docx', 'doc', 'txt']):
+            if idx >= level:
+                break
+            files = Factory.create_multiple_files(1, file_type, identical_content=False)
+            mixed_files.extend(files)
+        matrix.append(('mixed_types', level, mixed_files[:level]))
+    
+    return matrix

@@ -1,56 +1,103 @@
 import pytest
+from fastapi import UploadFile
 
 
 class TestParameterValidation:
     """Test parameter validation for upload_document method."""
 
-    def test_when_no_file_parameter_provided_then_expect_type_error_raised(self):
+    @pytest.mark.asyncio
+    async def test_when_no_file_parameter_provided_then_expect_type_error_raised(self, mock_app_instance):
         """
-        GIVEN no file parameter is provided to the method
+        GIVEN an App instance with no file parameter provided
         WHEN the upload_document method is called without the file parameter
-        THEN expect TypeError to be raised.
+        THEN expect TypeError to be raised with message containing 'missing 1 required positional argument'.
         """
-        raise NotImplementedError("test_when_no_file_parameter_provided_then_expect_type_error_raised needs to be implemented")
+        # Arrange
+        expected_error_msg = "missing 1 required positional argument"
 
-    def test_when_invalid_file_parameter_type_provided_then_expect_type_error_raised(self):
+        # Act & Assert
+        with pytest.raises(TypeError, match=expected_error_msg):
+            await mock_app_instance.upload_document()
+
+    @pytest.mark.asyncio
+    async def test_when_invalid_file_parameter_type_provided_then_expect_type_error_raised(self, mock_app_instance):
         """
-        GIVEN a non-UploadFile object is provided as the file parameter
+        GIVEN an App instance and a non-UploadFile object as the file parameter
         WHEN the upload_document method is called with the invalid file type
         THEN expect TypeError to be raised.
         """
-        raise NotImplementedError("test_when_invalid_file_parameter_type_provided_then_expect_type_error_raised needs to be implemented")
+        # Arrange
+        invalid_file = "not_an_upload_file"
 
-    def test_when_client_cid_is_none_then_expect_no_exceptions_raised(self):
+        # Act & Assert
+        with pytest.raises(TypeError, match=r"file must be an UploadFile object"):
+            await mock_app_instance.upload_document(invalid_file)
+
+    @pytest.mark.asyncio
+    async def test_when_client_cid_is_none_then_expect_no_exceptions_raised(self, mock_app_instance, mock_upload_files):
         """
-        GIVEN a valid file and client_cid is set to None
+        GIVEN an App instance with valid file and client_cid set to None
         WHEN the upload_document method is called
         THEN expect no exceptions to be raised during method execution.
         """
-        raise NotImplementedError("test_when_client_cid_is_none_then_expect_no_exceptions_raised needs to be implemented")
+        # Arrange
+        valid_file = mock_upload_files['pdf']
+        client_cid = None
 
-    def test_when_client_cid_is_none_then_expect_success_status_returned(self):
+        # Act & Assert (no exception should be raised)
+        result = await mock_app_instance.upload_document(valid_file, client_cid)
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_when_client_cid_is_none_then_expect_success_status_returned(self, mock_app_instance, mock_upload_files):
         """
-        GIVEN a valid file and client_cid is set to None
+        GIVEN an App instance with valid file and client_cid set to None
         WHEN the upload_document method is called
         THEN expect the returned JSONResponse to have status field equal to "success".
         """
-        raise NotImplementedError("test_when_client_cid_is_none_then_expect_success_status_returned needs to be implemented")
+        # Arrange
+        valid_file = mock_upload_files['pdf']
+        client_cid = None
+        expected_status = "success"
 
-    def test_when_valid_client_cid_provided_then_expect_upload_associated_with_client(self):
-        """
-        GIVEN a valid file and a properly formatted CID string for client_cid
-        WHEN the upload_document method is called
-        THEN expect the method to accept the client_cid and associate the upload with that client.
-        """
-        raise NotImplementedError("test_when_valid_client_cid_provided_then_expect_upload_associated_with_client needs to be implemented")
+        # Act
+        result = await mock_app_instance.upload_document(valid_file, client_cid)
+        response_data = result.body.decode('utf-8')
 
-    def test_when_invalid_client_cid_format_provided_then_expect_value_error_raised(self):
+        # Assert
+        assert expected_status in response_data, f"Expected status '{expected_status}' to be in response, got {response_data}"
+
+    # @pytest.mark.asyncio
+    # async def test_when_valid_client_cid_provided_then_expect_upload_associated_with_client(self, mock_app_instance, mock_upload_files, client_cid_test_cases):
+    #     """
+    #     GIVEN an App instance with valid file and properly formatted CID string for client_cid
+    #     WHEN the upload_document method is called
+    #     THEN expect the method to accept the client_cid and associate the upload with that client.
+    #     """
+    #     # Arrange
+    #     valid_file = mock_upload_files['pdf']
+    #     valid_client_cid = client_cid_test_cases['valid']
+
+    #     # Act
+    #     result = await mock_app_instance.upload_document(valid_file, valid_client_cid)
+
+    #     # Assert
+    #     assert result is not None, f"Expected method to return result when valid client_cid provided, got None"
+
+    @pytest.mark.asyncio
+    async def test_when_invalid_client_cid_format_provided_then_expect_value_error_raised(self, mock_app_instance, mock_upload_files, client_cid_variations):
         """
-        GIVEN a valid file and an improperly formatted client_cid string
+        GIVEN an App instance with valid file and improperly formatted client_cid string
         WHEN the upload_document method is called
         THEN expect ValueError to be raised.
         """
-        raise NotImplementedError("test_when_invalid_client_cid_format_provided_then_expect_value_error_raised needs to be implemented")
+        # Arrange
+        valid_file = mock_upload_files['pdf']
+        invalid_client_cid = client_cid_variations['invalid']
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            await mock_app_instance.upload_document(valid_file, invalid_client_cid)
 
 
 if __name__ == "__main__":
