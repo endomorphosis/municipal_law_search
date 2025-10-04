@@ -30,7 +30,6 @@ locust>=2.15.1
 freezegun>=1.5.5
 faker>=18.9.0
 
-
 # Development
 jupyter>=1.0.0
 
@@ -46,19 +45,22 @@ sse-starlette
 torch
 openpyxl
 anthropic
-
-# run_tests_and_save_results tool dependencies
-flake8>=6.0.0
-mypy>=1.0.0
-coverage >=7.8.0
 pathspec
 nltk
 elasticsearch
 
 # testing
+flake8>=6.0.0
+mypy>=1.0.0
+coverage >=7.8.0
 pytest
 pytest-cov
 pytest-asyncio
+pytest-bdd
 
-# For document type detection
+# For document manipulation
 python-magic
+python-docx
+doc2docx
+PyPDF2
+reportlab

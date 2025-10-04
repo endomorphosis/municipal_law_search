@@ -140,9 +140,7 @@ RESPONSE_FIELD_TYPES = {
 CID_PATTERN = re.compile(r'^bafkreiht[a-zA-Z0-9]{52}$')
 
 # ISO 8601 timestamp pattern
-ISO_TIMESTAMP_PATTERN = re.compile(
-    r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z?$'
-)
+ISO_TIMESTAMP_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z?$')
 
 # File size pattern (positive integers)
 FILE_SIZE_PATTERN = re.compile(r'^\d+$')

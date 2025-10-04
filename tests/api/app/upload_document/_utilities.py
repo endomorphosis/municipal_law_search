@@ -11,9 +11,19 @@ import hashlib
 import uuid
 import zipfile
 import datetime
-from unittest.mock import Mock, AsyncMock
-from typing import Dict, Any, Optional, List, Tuple, Union
+import logging
+from unittest.mock import Mock, AsyncMock, MagicMock
+from typing import Dict, Any, Optional, List, Tuple
+import traceback
+
+
 from fastapi import UploadFile, HTTPException
+
+
+from app.app import make_app
+from app.utils.common.get_cid import get_cid
+from app.llm import AsyncLLMInterface
+from app.read_only_database import make_read_only_db, Database
 
 
 class TestDataFactory:
@@ -25,7 +35,28 @@ class TestDataFactory:
     configurations based on parameters.
     """
     NUM_CHARS_CID = 52  # Standard CID length
-    
+    SHORT_CID_LENGTH = 20
+    CID_PREFIX = "bafkreiht"
+
+    INVALID_CID_FORMATS = {
+        'malformed': "invalid_cid_format_12345",
+        'wrong_prefix': "qmfkreiht" + hashlib.sha256(b"test").hexdigest()[:NUM_CHARS_CID],
+        'too_short': CID_PREFIX, 
+        'with_spaces': f"{CID_PREFIX} 123456789abcdef",
+        'special_chars': f"{CID_PREFIX}!@#$%^&*()",
+        'unicode': f"{CID_PREFIX}测试",
+        'empty': "",
+        'numeric': 12345
+    }
+
+    SIZE_MULTIPLIERS = {
+        'minimal': 1,
+        'small': 10,
+        'medium': 100,
+        'large': 1000,
+        'oversized': 100000
+    }
+
     @classmethod
     def make_cid(cls, content: str = None, invalid: bool = False, format_type: str = 'standard') -> str:
         """
@@ -39,40 +70,24 @@ class TestDataFactory:
         Returns:
             str: Generated CID in requested format
         """
-        num_chars = 52 
         if invalid:
-            return TestDataFactory._create_invalid_cid(format_type)
-        
-        if content is None:
-            content = str(uuid.uuid4())
-        
-        # Generate consistent hash for same content
-        hash_value = hashlib.sha256(content.encode()).hexdigest()
-        
-        if format_type == 'short':
-            return f"bafkrei{hash_value[:20]}"
-        elif format_type == 'long': 
-            return f"bafkreiht{hash_value[:cls.NUM_CHARS_CID]}extra_chars"
-        else:  # standard
-            return f"bafkreiht{hash_value[:cls.NUM_CHARS_CID]}"
-    
+            return cls.INVALID_CID_FORMATS[format_type]
+
+        input_content = content or str(uuid.uuid4())
+
+        cid_value = get_cid(input_content, for_string=True)
+
+        match format_type:
+            case 'short':
+                return cid_value[:cls.SHORT_CID_LENGTH]
+            case 'long':
+                return f"{cid_value}extra_chars"
+            case _:  # standard
+                return cid_value
+
     @classmethod
-    def _create_invalid_cid(cls, format_type: str) -> str:
-        """Create various types of invalid CIDs."""
-        invalid_formats = {
-            'malformed': "invalid_cid_format_12345",
-            'wrong_prefix': "qmfkreiht" + hashlib.sha256(b"test").hexdigest()[:cls.NUM_CHARS_CID],
-            'too_short': "bafkrei", 
-            'with_spaces': "bafkreiht 123456789abcdef",
-            'special_chars': "bafkreiht!@#$%^&*()",
-            'unicode': "bafkreiht测试",
-            'empty': "",
-            'numeric': 12345
-        }
-        return invalid_formats.get(format_type, invalid_formats['malformed'])
-    
-    @staticmethod
     def create_file_content(
+        cls,
         file_type: str,
         text_content: str = None,
         size: str = 'medium',
@@ -92,42 +107,42 @@ class TestDataFactory:
         Returns:
             bytes: Generated file content
         """
+        # Handle special case for 'empty' file type
+        if file_type == 'empty':
+            return b''
+
         if text_content is None:
-            text_content = TestDataFactory._generate_text_content(size)
-        
+            text_content = cls._generate_text_content(size)
+
         if corruption != 'none':
-            return TestDataFactory._corrupt_content(file_type, text_content, corruption)
-        
+            return cls._corrupt_content(file_type, text_content, corruption)
+
         # Dispatch to specific file creators
         creators = {
-            'pdf': TestDataFactory._create_pdf_content,
-            'docx': TestDataFactory._create_docx_content, 
-            'doc': TestDataFactory._create_doc_content,
-            'txt': TestDataFactory._create_txt_content,
-            'jpg': TestDataFactory._create_jpg_content,
-            'png': TestDataFactory._create_png_content,
+            'pdf': cls._create_pdf_content,
+            'docx': cls._create_docx_content, 
+            'doc': cls._create_doc_content,
+            'txt': cls._create_txt_content,
+            'jpg': cls._create_jpg_content,
+            'png': cls._create_png_content,
             'empty': lambda text, enc: b''
         }
-        
-        creator = creators.get(file_type, TestDataFactory._create_txt_content)
+        if file_type not in creators:
+            raise KeyError(f"Unsupported file type: {file_type}")
+
+        creator = creators[file_type]
         return creator(text_content, encoding)
-    
-    @staticmethod
-    def _generate_text_content(size: str) -> str:
+
+    @classmethod
+    def _generate_text_content(cls, size: str) -> str:
         """Generate text content of specified size."""
         base_content = "This is test content for upload_document testing."
-        
-        size_multipliers = {
-            'minimal': 1,
-            'small': 10,
-            'medium': 100,
-            'large': 1000,
-            'oversized': 100000
-        }
-        
-        multiplier = size_multipliers.get(size, 100)
-        return (base_content + "\n") * multiplier
-    
+
+        if size not in cls.SIZE_MULTIPLIERS:
+            raise KeyError(f"Unsupported size category: {size}")
+
+        return (base_content + "\n") * cls.SIZE_MULTIPLIERS[size]
+
     @staticmethod
     def _create_pdf_content(text_content: str, encoding: str) -> bytes:
         """Create valid PDF content."""
@@ -199,7 +214,7 @@ startxref
 {450 + len(text_content)}
 %%EOF"""
         return pdf_template.encode(encoding)
-    
+
     @staticmethod
     def _create_docx_content(text_content: str, encoding: str) -> bytes:
         """Create valid DOCX content."""
@@ -212,13 +227,13 @@ startxref
                 '<Default Extension="xml" ContentType="application/xml"/>'
                 '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
                 '</Types>')
-            
+
             docx.writestr('_rels/.rels',
                 '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
                 '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
                 '</Relationships>')
-            
+
             docx.writestr('word/document.xml',
                 f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 f'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
@@ -226,10 +241,10 @@ startxref
                 f'<w:p><w:r><w:t>{text_content}</w:t></w:r></w:p>'
                 f'</w:body>'
                 f'</w:document>')
-        
+
         buffer.seek(0)
         return buffer.getvalue()
-    
+
     @staticmethod
     def _create_doc_content(text_content: str, encoding: str) -> bytes:
         """Create valid DOC content."""
@@ -237,86 +252,85 @@ startxref
         doc_body = text_content.encode(encoding)
         padding = b'\x00' * (512 - len(doc_body) % 512) if len(doc_body) % 512 else b''
         return doc_header + doc_body + padding
-    
+
     @staticmethod
     def _create_txt_content(text_content: str, encoding: str) -> bytes:
         """Create TXT content."""
         return text_content.encode(encoding)
-    
+
     @staticmethod
     def _create_jpg_content(text_content: str, encoding: str) -> bytes:
         """Create minimal JPG header."""
         return b'\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xFF\xDB'
-    
+
     @staticmethod
     def _create_png_content(text_content: str, encoding: str) -> bytes:
         """Create minimal PNG header."""
         return b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR'
-    
-    @staticmethod
-    def _corrupt_content(file_type: str, text_content: str, corruption: str) -> bytes:
+
+    @classmethod
+    def _corrupt_content(cls, file_type: str, text_content: str, corruption: str) -> bytes:
         """Create corrupted file content."""
-        base_content = TestDataFactory.create_file_content(file_type, text_content)
-        
-        if corruption == 'header':
-            return b'CORRUPTED_HEADER' + base_content[10:]
-        elif corruption == 'structure':
-            return base_content[:len(base_content)//2] + b'\xFF\xFE\xFD' + base_content[len(base_content)//2+10:]
-        elif corruption == 'encoding':
-            return b'\xFF\xFE\xFD' + base_content
-        elif corruption == 'truncated':
-            return base_content[:len(base_content)//2]
-        else:
-            return base_content + b'\x00\xFF\xFE\xFD'
-    
-    @staticmethod
+        base_content = cls.create_file_content(file_type, text_content)
+
+        match corruption:
+            case 'header':
+                return b'CORRUPTED_HEADER' + base_content[10:]
+            case 'structure':
+                return base_content[:len(base_content)//2] + b'\xFF\xFE\xFD' + base_content[len(base_content)//2+10:]
+            case 'encoding':
+                return b'\xFF\xFE\xFD' + base_content
+            case 'truncated':
+                return base_content[:len(base_content)//2]
+            case _:
+                return base_content + b'\x00\xFF\xFE\xFD'
+
+    @classmethod
     def create_mock(
+        cls,
         mock_type: str,
-        config: Optional[Dict[str, Any]] = None,
         should_fail: bool = False,
         failure_type: str = 'generic'
     ) -> Mock:
         """
         Unified mock creation - handles all mock types in one place.
-        
+
         Args:
             mock_type: Type of mock ('upload_file', 'database', 'app', 'error')
             config: Configuration parameters for the mock
             should_fail: Whether mock should simulate failures
             failure_type: Type of failure to simulate
-            
+
         Returns:
             Mock: Configured mock object
         """
-        config = config or {}
-        
         mock_creators = {
-            'upload_file': TestDataFactory._create_upload_file_mock,
-            'database': TestDataFactory._create_database_mock,
-            'app': TestDataFactory._create_app_mock,
-            'configs': TestDataFactory._create_configs_mock,
-            'resources': TestDataFactory._create_resources_mock,
-            'error': TestDataFactory._create_error_mock
+            'database': cls._create_database_mock,
+            'app': cls._create_app_mock,
+            'resources': cls._create_resources_mock,
+            'error': cls._create_error_mock
         }
-        
-        creator = mock_creators.get(mock_type, TestDataFactory._create_generic_mock)
-        return creator(config, should_fail, failure_type)
-    
-    @staticmethod
-    def _create_upload_file_mock(config: Dict, should_fail: bool, failure_type: str) -> Mock:
+        if mock_type not in mock_creators:
+            raise KeyError(f"Unsupported mock type: {mock_type}\n{traceback.print_exc()}")
+
+        creator = mock_creators[mock_type]
+        return creator(should_fail, failure_type)
+
+    @classmethod
+    def _create_upload_file_mock(cls, config: Dict, should_fail: bool, failure_type: str) -> Mock:
         """Create UploadFile mock."""
         content = config.get('content', b'test content')
         filename = config.get('filename', 'test.txt')
         content_type = config.get('content_type', 'text/plain')
         size = config.get('size', len(content))
-        
+
         file_stream = io.BytesIO(content)
         mock_file = Mock(spec=UploadFile)
         mock_file.filename = filename
         mock_file.content_type = content_type
         mock_file.size = size
         mock_file.file = file_stream
-        
+
         if should_fail:
             if failure_type == 'read_error':
                 mock_file.read = AsyncMock(side_effect=IOError("Cannot read file"))
@@ -330,17 +344,17 @@ startxref
                     file_stream.seek(0)
                     return file_stream.read()
                 return file_stream.read(size)
-            
+
             mock_file.read = AsyncMock(side_effect=mock_read)
             mock_file.seek = lambda offset, whence=0: file_stream.seek(offset, whence)
-        
+
         return mock_file
-    
-    @staticmethod
-    def _create_database_mock(config: Dict, should_fail: bool, failure_type: str) -> Mock:
+
+    @classmethod
+    def _create_database_mock(cls, config: Dict, should_fail: bool, failure_type: str) -> Mock:
         """Create database mock."""
         mock_db = Mock()
-        
+
         if should_fail:
             error_types = {
                 'connection': ConnectionError("Database connection failed"),
@@ -349,85 +363,72 @@ startxref
                 'permission': PermissionError("Database access denied"),
                 'disk_full': OSError("No space left on device")
             }
-            error = error_types.get(failure_type, Exception("Database operation failed"))
-            
+            if failure_type not in error_types:
+                raise KeyError(f"Unsupported failure type: {failure_type}")
+
+            error = error_types[failure_type]
+
             mock_db.execute.side_effect = error
             mock_db.fetch_one.side_effect = error
             mock_db.fetch_all.side_effect = error
         else:
             mock_db.execute.return_value = True
-            mock_db.fetch_one.return_value = config.get('record', {
-                'cid': TestDataFactory.create_cid(),
-                'filename': 'test_document.pdf',
-                'file_size': 1024,
-                'text_content': 'Extracted text content',
-                'client_cid': None,
-                'upload_timestamp': TestDataFactory.create_timestamp()
-            })
+            mock_db.fetch_one.return_value = config['record']
             mock_db.fetch_all.return_value = [mock_db.fetch_one.return_value]
-        
+
         # Connection management
         mock_db.connect = Mock()
         mock_db.close = Mock()
         mock_db.__enter__ = Mock(return_value=mock_db)
         mock_db.__exit__ = Mock(return_value=None)
-        
+
         return mock_db
-    
-    @staticmethod
-    def _create_app_mock(config: Dict, should_fail: bool, failure_type: str) -> Mock:
+
+    @classmethod
+    def _create_app_mock(cls, config: Dict, should_fail: bool, failure_type: str) -> Mock:
         """Create App instance mock."""
-        mock_app = Mock()
-        mock_app.configs = TestDataFactory.create_mock('configs', config.get('configs', {}))
-        mock_app.resources = TestDataFactory.create_mock('resources', config.get('resources', {}))
-        mock_app.db = mock_app.resources.get('database', TestDataFactory.create_mock('database'))
-        mock_app.logger = Mock()
-        
-        if should_fail:
-            async def mock_upload_document_failure(file, client_cid=None):
-                raise HTTPException(status_code=500, detail=f"{failure_type} failure")
-            mock_app.upload_document = AsyncMock(side_effect=mock_upload_document_failure)
-        else:
-            async def mock_upload_document_success(file, client_cid=None):
-                return TestDataFactory.create_response('success', {
-                    'cid': TestDataFactory.create_cid(),
-                    'filename': file.filename,
-                    'file_size': file.size
-                })
-            mock_app.upload_document = AsyncMock(side_effect=mock_upload_document_success)
-        
+        from app.configs import configs
+
+        mock_resources = {
+            "llm": AsyncMock(spec_set=AsyncLLMInterface),
+            "logger": MagicMock(spec=logging.Logger),
+            "db": AsyncMock(spec=Database),
+        }
+
+        mock_app = make_app(mock_resources=mock_resources, mock_configs=configs)
+
         return mock_app
-    
+
     @staticmethod
-    def _create_configs_mock(config: Dict, should_fail: bool, failure_type: str) -> Mock:
+    def _create_configs_mock(config: Dict) -> Mock:
         """Create configuration mock."""
         mock_configs = Mock()
-        mock_configs.max_file_size = config.get('max_file_size', 50 * 1024 * 1024)
-        mock_configs.supported_file_types = config.get('supported_file_types', ['.pdf', '.doc', '.docx', '.txt'])
-        mock_configs.database_url = config.get('database_url', "sqlite:///test.db")
-        mock_configs.upload_directory = config.get('upload_directory', "/tmp/uploads")
-        mock_configs.log_level = config.get('log_level', "INFO")
+        mock_configs.max_file_size = config['max_file_size']
+        mock_configs.supported_file_types = config['supported_file_types']
+        mock_configs.database_url = config['database_url']
+        mock_configs.upload_directory = config['upload_directory']
+        mock_configs.log_level = config['log_level']
         return mock_configs
-    
-    @staticmethod
-    def _create_resources_mock(config: Dict, should_fail: bool, failure_type: str) -> Mock:
+
+    @classmethod
+    def _create_resources_mock(cls, config: Dict, should_fail: bool, failure_type: str) -> Mock:
         """Create resources dictionary mock."""
-        mock_db = TestDataFactory.create_mock('database', config.get('database', {}), should_fail, failure_type)
-        
+        mock_db = cls.create_mock('database', config.get('database', {}), should_fail, failure_type)
+
         return {
             'database': mock_db,
             'logger': Mock(),
-            'cid_generator': Mock(return_value=TestDataFactory.create_cid()),
+            'cid_generator': Mock(return_value=cls.make_cid()),
             'text_extractor': Mock(return_value="Extracted text content"),
             'file_processor': Mock(),
-            'timestamp_generator': Mock(return_value=TestDataFactory.create_timestamp())
+            'timestamp_generator': Mock(return_value=cls.create_timestamp())
         }
-    
+
     @staticmethod
-    def _create_error_mock(config: Dict, should_fail: bool, failure_type: str) -> Mock:
+    def _create_error_mock(failure_type: str) -> Mock:
         """Create error simulation mock."""
         mock = Mock()
-        
+
         error_types = {
             'io_error': IOError("File operation failed"),
             'value_error': ValueError("Content extraction failed"),
@@ -442,20 +443,23 @@ startxref
             'timeout_error': TimeoutError("Operation timed out"),
             'encoding_error': UnicodeDecodeError('utf-8', b'\xff\xfe', 0, 1, 'invalid start byte')
         }
-        
-        error = error_types.get(failure_type, Exception("Generic error"))
-        mock.side_effect = error
+        if failure_type not in error_types:
+            raise KeyError(f"Unsupported failure type: {failure_type}")
+
+        mock.side_effect = error_types[failure_type]
         return mock
-    
-    @staticmethod
-    def _create_generic_mock(config: Dict, should_fail: bool, failure_type: str) -> Mock:
-        """Create generic mock."""
-        return Mock()
-    
-    @staticmethod
+
+
+    @classmethod
     def create_response(
+        cls, 
         status: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = {
+            'message': 'Operation completed successfully',
+            'cid': lambda : get_cid(str(uuid.uuid4()), for_string=True),
+            'filename': 'test_document.pdf',
+            'file_size': 1024
+        },
         error_code: str = None,
         timestamp: str = None
     ) -> Dict[str, Any]:
@@ -472,40 +476,40 @@ startxref
             Dict[str, Any]: Properly structured response
         """
         data = data or {}
-        
+
         if timestamp is None:
-            timestamp = TestDataFactory.create_timestamp()
-        
+            timestamp = cls.create_timestamp()
+
         base_response = {
             'status': status,
             'upload_timestamp': timestamp
         }
-        
+
         if status == 'success':
             success_response = {
                 **base_response,
-                'message': data.get('message', 'File uploaded successfully'),
-                'cid': data.get('cid', TestDataFactory.create_cid()),
-                'filename': data.get('filename', 'test_document.pdf'),
-                'file_size': data.get('file_size', 1024)
+                'message': data['message'],
+                'cid': data['cid'],
+                'filename': data['filename'],
+                'file_size': data['file_size']
             }
             return success_response
         else:  # error
             error_response = {
                 **base_response,
-                'message': data.get('message', 'Upload failed'),
-                'error_code': error_code or 'PROCESSING_ERROR'
+                'message': data['message'],
+                'error_code': error_code
             }
             return error_response
-    
+
     @staticmethod
     def create_timestamp(offset_seconds: int = 0) -> str:
         """
         Create ISO timestamp - single source for all timestamp generation.
-        
+
         Args:
             offset_seconds: Offset from current time in seconds
-            
+
         Returns:
             str: ISO formatted timestamp
         """
@@ -513,9 +517,10 @@ startxref
         if offset_seconds != 0:
             timestamp += datetime.timedelta(seconds=offset_seconds)
         return timestamp.isoformat().replace('+00:00', 'Z')
-    
-    @staticmethod
+
+    @classmethod
     def create_multiple_files(
+        cls,
         count: int,
         file_type: str = 'pdf',
         identical_content: bool = False,
@@ -535,14 +540,14 @@ startxref
         """
         files = []
         base_content = "Shared content for multiple files" if identical_content else None
-        
+
         for i in range(count):
-            content = TestDataFactory.create_file_content(
+            content = cls.create_file_content(
                 file_type,
                 text_content=base_content or f"Content for file {i+1}",
                 size='medium'
             )
             filename = f"{base_filename}_{i+1}.{file_type}"
             files.append((content, filename))
-        
+
         return files

@@ -7,6 +7,7 @@ through a dependency injection pattern.
 """
 from contextlib import contextmanager
 from functools import wraps
+import logging
 import os
 from queue import Queue
 from threading import Lock
@@ -17,7 +18,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVa
 
 from api_.database.dependencies.duckdb_database import DuckDbDatabase
 from configs import configs, Configs
-from logger import logger
+from logger import logger as module_logger
 
 
 C = TypeVar('C') # 'C' for connection type
@@ -26,7 +27,6 @@ S = TypeVar('S') # 'S' for session type
 # try_except.py
 import asyncio
 import inspect
-from logger import logger
 
 
 def try_except(func: Callable = lambda x: x, 
@@ -64,13 +64,13 @@ def try_except(func: Callable = lambda x: x,
             try:
                 return func(*args, **kwargs)
             except exception_type as e:
-                logger.exception(f"{msg}: {e}", stacklevel=2) # Raise the stack level up to the caller
+                module_logger.exception(f"{msg}: {e}", stacklevel=2) # Raise the stack level up to the caller
                 errored = e
             finally:
                 if errored is None:
-                    logger.debug(f"Function {func.__name__} completed successfully.")
+                    module_logger.debug(f"Function {func.__name__} completed successfully.")
                 else:
-                    logger.debug(f"Function {func.__name__} failed with error: {errored}")
+                    module_logger.debug(f"Function {func.__name__} failed with error: {errored}")
                     if raise_:
                         raise errored
                     else:
@@ -85,13 +85,13 @@ def try_except(func: Callable = lambda x: x,
             try:
                 return await func(*args, **kwargs)
             except exception_type as e:
-                logger.exception(f"{msg}: {e}", stacklevel=2) # Raise the stack level up to the caller
+                module_logger.exception(f"{msg}: {e}", stacklevel=2) # Raise the stack level up to the caller
                 errored = e
             finally:
                 if errored is None:
-                    logger.debug(f"Function {func.__name__} completed successfully.")
+                    module_logger.debug(f"Function {func.__name__} completed successfully.")
                 else:
-                    logger.debug(f"Function {func.__name__} failed with error: {errored}")
+                    module_logger.debug(f"Function {func.__name__} failed with error: {errored}")
                     if raise_:
                         raise errored
                     else:
@@ -113,11 +113,23 @@ class Database:
     Attributes:
         configs: Configuration settings for the database
         resources: Dictionary of callable functions for database operations
-        _connection_pool: Queue of available database connections
-        _pool_lock: Thread lock for connection pool access
-        _db_type: Type of database being used
-        _read_only: Whether the database is in read-only mode
-        _db_path: Path to the database file
+        logger: Logger instance for logging database operations
+
+    Methods:
+        connect: Establish a connection to the database
+        close: Close the current database connection
+        execute: Execute a database query
+        fetch: Fetch a specified number of results from a query
+        fetch_all: Fetch all results from a query
+        execute_script: Execute a multi-statement SQL script
+        commit: Commit the current transaction
+        rollback: Rollback the current transaction
+        begin: Begin a new transaction
+        connection_context_manager: Context manager for database connections
+        transaction_context_manager: Context manager for database transactions
+        exit: Close all database connections and end the session
+        close_session: Close the current database session if it exists
+        get_cursor: Get a cursor for the database connection
     """
 
     def __init__(self, *,
@@ -133,6 +145,8 @@ class Database:
         """
         self.configs = configs
         self.resources = resources
+
+        self.logger: logging.Logger = self.resources['logger']
 
         self._session: Optional[S] = None
         self._transaction_conn: Optional[C] = None
@@ -165,7 +179,7 @@ class Database:
 
         # Initialize connection pool
         self._init_connection_pool()
-        logger.info("Database initialized")
+        self.logger.info("Database initialized")
 
     def _flush_connection_pool(self) -> None:
         """
@@ -181,9 +195,9 @@ class Database:
                     conn_info = self._connection_pool.get(block=False)
                     self._close(conn_info['connection'])
                 except Exception as e:
-                    logger.exception(f"Error closing connection: {e}")
+                    self.logger.exception(f"Error closing connection: {e}")
                     continue
-        logger.debug("Connection pool flushed")
+        # self.logger.debug("Connection pool flushed")
 
     def _init_connection_pool(self) -> None:
         """
@@ -205,9 +219,9 @@ class Database:
                     'last_used': time.time()
                 })
             except Exception as e:
-                logger.exception(f"Error initializing connection pool: {e}")
+                self.logger.exception(f"Error initializing connection pool: {e}")
                 raise e
-        logger.debug("Connection pool initialized")
+        self.logger.debug("Connection pool initialized")
 
     def __enter__(self) -> 'Database':
         """
@@ -228,6 +242,7 @@ class Database:
             exc_tb: Exception traceback if an exception was raised
         """
         self.exit()
+        return
 
 
     def exit(self) -> None:
@@ -239,7 +254,6 @@ class Database:
         """
         self._flush_connection_pool()
         self._session = None
-        logger.info("Database closed")
 
 
     @try_except(msg="Error getting connection from pool", raise_=True)
@@ -263,7 +277,7 @@ class Database:
                 try:
                     self._close(conn_info['connection'])
                 except Exception as e:
-                    logger.warning(f"Error closing aged connection: {e}")
+                    self.logger.warning(f"Error closing aged connection: {e}")
                 
                 # Create a new connection
                 conn_info = {
@@ -287,34 +301,34 @@ class Database:
         Args:
             conn: The database connection to return to the pool
         """
-        # logger.debug("Returning connection to pool...")
+        # self.logger.debug("Returning connection to pool...")
         try:
             # If pool is full, close the connection
             if self._connection_pool.full():
-                # logger.debug("Connection pool is full, closing connection")
+                # self.logger.debug("Connection pool is full, closing connection")
                 self._close(conn)
                 return
-            # logger.debug("Returning connection to pool")
+            # self.logger.debug("Returning connection to pool")
 
             # Add connection back to pool
             with self._pool_lock:
-                # logger.debug("Acquired pool lock")
+                # self.logger.debug("Acquired pool lock")
                 self._connection_pool.put({
                     'connection': conn,
                     'created_at': time.time(),
                     'last_used': time.time()
                 }, block=False)
-                # logger.debug("Connection return to pool.")
-            # logger.debug("Pool lock released") 
+                # self.logger.debug("Connection return to pool.")
+            # self.logger.debug("Pool lock released") 
             return
         except Exception as e:
-            logger.warning(f"Error returning connection to pool: {e}\n{traceback.format_exc()}")
+            self.logger.warning(f"Error returning connection to pool: {e}\n{traceback.format_exc()}")
             
             # Close connection if we couldn't return it
             try:
                 self._close(conn)
             except Exception as e2:
-                logger.warning(f"Error closing connection: {e2}\n{traceback.format_exc()}")
+                self.logger.warning(f"Error closing connection: {e2}\n{traceback.format_exc()}")
 
 
     @try_except(msg="Error connecting to database", raise_=True)
@@ -326,7 +340,7 @@ class Database:
         """
         # Do nothing if already connected.
         conn = self._get_connection_from_pool()
-        logger.debug("Database connection established")
+        self.logger.debug("Database connection established")
         return conn
 
 
@@ -338,14 +352,14 @@ class Database:
         Args:
             conn: The database connection to close
         """
-        logger.debug("Closing database connection...")
+        self.logger.debug("Closing database connection...")
         # First, close any active session
         self.close_session(conn)
-        logger.debug("Session closed")
+        self.logger.debug("Session closed")
 
         # Return connection to pool
         self._return_connection_to_pool(conn)
-        logger.debug("Database connection closed")
+        self.logger.debug("Database connection closed")
 
 
     @try_except(msg="Error closing session", raise_=False)
@@ -356,8 +370,8 @@ class Database:
         if self._session:
             self._close_session(conn)
             self._session = None
-            logger.debug("Session closed")
-        logger.debug("No session to close")
+            self.logger.debug("Session closed")
+        self.logger.debug("No session to close")
         return
 
     @try_except(msg="Error getting cursor", raise_=True)
@@ -397,9 +411,9 @@ class Database:
                 else:
                     return self._execute(conn, query)
             except Exception as e:
-                logger.exception(f"Error executing query: {e}")
-                logger.debug(f"Query: {query}")
-                logger.debug(f"Params: {params}")
+                self.logger.exception(f"Error executing query: {e}")
+                self.logger.debug(f"Query: {query}")
+                self.logger.debug(f"Params: {params}")
                 raise
 
     def fetch(self, 
@@ -429,9 +443,9 @@ class Database:
             try:
                 return self._fetch(conn, query, params, num_results, return_format)
             except Exception as e:
-                logger.exception(f"Error fetching results: {e}")
-                logger.debug(f"Query: {query}")
-                logger.debug(f"Params: {params}")
+                self.logger.exception(f"Error fetching results: {e}")
+                self.logger.debug(f"Query: {query}")
+                self.logger.debug(f"Params: {params}")
                 return []
 
 
@@ -458,9 +472,9 @@ class Database:
             try:
                 return self._fetch_all(conn, query, params, return_format)
             except Exception as e:
-                logger.exception(f"Error fetching results: {e}")
-                logger.debug(f"Query: {query}")
-                logger.debug(f"Params: {params}")
+                self.logger.exception(f"Error fetching results: {e}")
+                self.logger.debug(f"Query: {query}")
+                self.logger.debug(f"Params: {params}")
                 return []
 
     def execute_script(
@@ -504,10 +518,10 @@ class Database:
         try:
             return self.execute(script, params)
         except Exception as e:
-            logger.exception(f"Error executing script: {e}")
-            logger.debug(f"Script: {script}")
-            logger.debug(f"Path: {path}")
-            logger.debug(f"Params: {params}")
+            self.logger.exception(f"Error executing script: {e}")
+            self.logger.debug(f"Script: {script}")
+            self.logger.debug(f"Path: {path}")
+            self.logger.debug(f"Params: {params}")
             raise e
 
 
@@ -573,7 +587,7 @@ class Database:
         try:
             yield conn
         except Exception as e:
-            logger.exception(f"Transaction error: {e}")
+            self.logger.exception(f"Transaction error: {e}")
             errored = e
         finally:
             self.close(conn)
@@ -600,7 +614,7 @@ class Database:
         try:
             yield conn
         except Exception as e:
-            logger.exception(f"Transaction error: {e}")
+            self.logger.exception(f"Transaction error: {e}")
             self.rollback(conn)
             errored = e
         finally:

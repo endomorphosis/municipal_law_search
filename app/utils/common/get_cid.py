@@ -55,6 +55,30 @@ class IpfsMultiformats:
         """
         return multihash.wrap(file_content_hash, 'sha2-256')
 
+    def _get_cid_temp_file(self, file_data: str | bytes) -> str:
+        """
+        Generate a CID for raw data by writing it to a temporary file.
+
+        Args:
+            file_data (str | bytes): The raw data to write to a temporary file.
+
+        Returns:
+            str: The generated CID as a string.
+        """
+        open_type = 'w' if isinstance(file_data, str) else 'wb'
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+                filename = f.name
+                with open(filename, open_type) as f_new:
+                    f_new.write(file_data)
+
+                file_content_hash = self.get_file_sha256(filename)
+                mh = self.get_multihash_sha256(file_content_hash)
+                cid = CID('base32', 1, 'raw', mh)
+                return str(cid)
+        finally:
+            os.remove(filename)
+
     def get_cid(self, file_data: str | bytes) -> str:
         """
         Generate a Content Identifier (CID) for the given file path or raw data.
@@ -75,28 +99,19 @@ class IpfsMultiformats:
             - CIDs are generated using CIDv1 with base32 encoding and the 'raw' codec
         """
         # If file_data is a valid file path that exists
-        if isinstance(file_data, str) and os.path.isfile(file_data):
-            print("Making file hash...")
-            if os.path.getsize(file_data) > 0:
-                file_content_hash = self.get_file_sha256(file_data)
-                mh = self.get_multihash_sha256(file_content_hash)
-                cid = CID('base32', 1, 'raw', mh)
-                return str(cid)
-            else:
-                print("Empty file. Defaulting to temp file method.")
-
-        # If file_data is raw data or an empty file, use a temporary file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-            filename = f.name
-            with open(filename, 'w') as f_new:
-                f_new.write(file_data)
-
-            file_content_hash = self.get_file_sha256(filename)
-            mh = self.get_multihash_sha256(file_content_hash)
-            cid = CID('base32', 1, 'raw', mh)
-        
-        # Always clean up the temporary file
-        os.remove(filename)
+        match file_data:
+            case str():
+                if os.path.isfile(file_data) and os.path.getsize(file_data) > 0:
+                    file_content_hash = self.get_file_sha256(file_data)
+                    mh = self.get_multihash_sha256(file_content_hash)
+                    cid = CID('base32', 1, 'raw', mh)
+                    return str(cid)
+                else:
+                    return self._get_cid_temp_file(file_data)
+            case bytes():
+                return self._get_cid_temp_file(file_data)
+            case _:
+                raise TypeError(f"file_data must be a str or bytes, got {type(file_data).__name__}")
 
         return str(cid)
 
@@ -117,7 +132,7 @@ def _get_cid_for_string(string: str) -> str:
         - The resulting hash is wrapped using the multihash library with the 'sha2-256' code.
         - The CID is constructed using the base32 encoding, version 1, and the 'raw' codec.
     """
-    hash = hashlib.sha256(string).digest()
+    hash = hashlib.sha256(string.encode('utf-8')).digest()
     mh = multihash.wrap(hash, 'sha2-256')
     cid = CID('base32', 1, 'raw', mh)
     return str(cid)

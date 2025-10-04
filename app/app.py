@@ -6,6 +6,7 @@ The FastAPI application that serves as an API for accessing American law documen
 from __future__ import annotations
 import __main__
 
+import asyncio
 from dotenv import load_dotenv
 import json
 from enum import StrEnum
@@ -15,6 +16,7 @@ import traceback
 from typing import Any, Callable, Optional, Union
 from types import ModuleType
 import logging
+from collections import defaultdict
 
 import smtplib
 import ssl
@@ -33,12 +35,13 @@ from sse_starlette.sse import EventSourceResponse
 import uvicorn
 
 
-from configs import Configs, configs as project_configs
+from configs import Configs, configs as project_configs, get_unittest_mock_attributes
 from logger import logger as module_logger
 
 
 import paths.search as search
 import paths.search_history as search_history
+from app.paths.upload_document import make_upload_document
 from schemas import LawItem
 from schemas import ErrorResponse
 
@@ -58,6 +61,10 @@ from pydantic import BaseModel, computed_field, PrivateAttr
 import mimetypes
 import magic
 
+class InitializationError(RuntimeError):
+    """Custom exception for initialization errors in the App class."""
+    def __init__(self, message: str):
+        super().__init__(message)
 
 class Routes(StrEnum):
     BASE = "/"
@@ -116,6 +123,23 @@ def _determine_mime_type(path_or_bytes: str | bytes | None) -> Optional[str]:
                 return 'application/octet-stream'
         case _:
             return None
+
+from typing import Annotated as Annot
+from pydantic import AfterValidator as AV, FilePath, ValidationError
+
+def is_static_web_file(file: FilePath) -> bool:
+    valid_extensions = {'.html', '.css', '.js', '.json', '.txt', '.xml'}
+    if not file.suffix in valid_extensions:
+        raise ValueError(
+            f"Web file must be one of the following types: {', '.join(valid_extensions)}. Got '{file.suffix}' instead."
+        )
+
+class StaticWebFile(BaseModel):
+    path: Annot[FilePath, AV(is_static_web_file)]
+
+    @property
+    async def file_response(self) -> FileResponse:
+        return await FileResponse(self.path)
 
 
 
@@ -225,11 +249,14 @@ class App:
     managing shared resources like database connections and language models, and
     defining the API routes and their corresponding handler functions.
 
+    NOTE This class is instantiated once at startup and should be treated as a singleton.
+    This class should never be instantiated directly. Use the `make_app()` factory function instead.
+
     Attributes:
         configs (Configs): Application configuration object.
         resources (dict): Dictionary of shared application resources.
         routes (Routes): Enum of application routes.
-        db (Database): The read-only database instance.
+        read_only_db (Database): The read-only database instance.
         llm (AsyncLLMInterface): The language model interface instance.
         logger (logging.Logger): The application logger.
         fastapi (FastAPI): The FastAPI application instance.
@@ -237,15 +264,17 @@ class App:
         templates (Jinja2Templates): Jinja2 templates engine.
         side_menu (SideMenu): The side menu handler.
         upload_menu (UploadMenu): The upload menu handler.
+        batch_processor (Callable): A function for batch processing tasks.
         search_function (Callable): The function used for performing searches.
         frontend_path (Path): Path to the frontend source directory.
         static_file_dir (Path): Path to the static files directory.
         templates_path (Path): Path to the templates directory.
         favicon_path (Path): Path to the favicon file.
         index_name (str): The name of the index HTML file.
+        temp_storage (dict): A dictionary for temporary session storage.
 
     Public Methods:
-        get_app(): Configures and returns the FastAPI application instance.
+        make_app(): Configures and returns the FastAPI application instance.
         favicon(): Serves the favicon.ico file.
         serve_index(request): Serves the main index.html page.
         serve_public_files(filename): Serves files from the public directory.
@@ -271,7 +300,7 @@ class App:
         self.resources = resources
 
         self.routes:          Routes            = Routes
-        self.db:              Database          = resources['db'] # NOTE These classes are instantiated already.
+        self.read_only_db:    Database          = resources['read_only_db'] # NOTE These classes are instantiated already.
         self.llm:             AsyncLLMInterface = resources['llm']
         self.logger:          logging.Logger    = resources['logger']
         self.fastapi:         FastAPI           = resources['fastapi']
@@ -279,7 +308,9 @@ class App:
         self.templates:       Jinja2Templates   = resources['Jinja2Templates']
         self.side_menu:       SideMenu          = None # TODO implement side menu class
         self.upload_menu:     UploadMenu        = None # TODO implement upload menu class
-        self.search_function: Callable          = resources['search_function']
+        self.batch_processor: Callable          = None # TODO See pdf_processor in ipfs_datasets_py
+        self._search_function: Callable         = resources['search_function']
+        self._upload_document: Callable         = resources['upload_document'] 
 
         # Contact form email settings
         self._email_address: str = configs.ADMIN_EMAIL
@@ -290,14 +321,32 @@ class App:
 
         # Paths
         # TODO move to configs.py
-
-        self.frontend_path    = configs.ROOT_DIR / 'src'
-        self.static_file_dir  = self.frontend_path / 'static'
-        self.templates_path   = self.frontend_path / 'templates'
-        self.favicon_path     = self.static_file_dir / 'images' / 'favicon' / 'favicon.ico'
-        self.index_name       = "index.html"
+        self.frontend_path: Path    = configs.ROOT_DIR / 'src'
+        self.static_file_dir: Path  = self.frontend_path / 'static'
+        self.templates_path: Path   = self.frontend_path / 'templates'
+        self.favicon_path: Path     = self.static_file_dir / 'images' / 'favicon' / 'favicon.ico'
+        self.index_name: str        = "index.html"
 
         self.templates = self.templates(directory=self.templates_path)
+
+        self.pending_uploads: asyncio.Queue = asyncio.Queue()
+
+        self.temp_storage = {
+            "current_sessions": {
+                "client_cid": {
+                    "uploads": {
+                        "cid": {
+                            "filename": str,
+                            "file_size": int,
+                            "upload_timestamp": str,
+                            "file_mime_type": str,
+                            "text_content": str,
+                        }
+                    },
+                }
+            }
+        }
+        self.perm_storage = defaultdict(list) # TODO implement permanent storage
 
 
     @property
@@ -346,6 +395,15 @@ class App:
     def index(self) -> str:
         return self.index_name
 
+    @staticmethod
+    def _validate_string(string: str) -> FileResponse:
+        if not isinstance(string, str):
+            raise TypeError(f"String must be str, got {type(string).__name__} instead.")
+        string = string.strip()
+        if not string:
+            raise ValueError("String cannot be empty or whitespace.")
+        return string
+
     async def favicon(self) -> FileResponse:
         """Serve the site favicon.ico file.
         
@@ -356,7 +414,11 @@ class App:
             FileResponse: The favicon.ico file
         """
         # NOTE This cannot be a property because FastAPI requires a callable for route handlers.
-        return FileResponse(self.favicon_path)
+        path = self.favicon_path
+        try:
+            return StaticWebFile(path=path).file_response  # Validate file
+        except ValidationError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
     async def serve_index(self, request: Request) -> HTMLResponse:
         """Serve the main index page of the application.
@@ -372,6 +434,8 @@ class App:
         """
         return self.templates.TemplateResponse(self.index, {"request": request})
 
+
+
     async def serve_public_files(self, filename: str) -> FileResponse:
         """Serve static files from the public templates directory.
         
@@ -383,15 +447,24 @@ class App:
             
         Returns:
             FileResponse: The requested file
+        Raises:
+            HTTPException: 404 error if the requested file does not exist
+            HTTPException: 400 error if the requested path is not a file
+            HTTPException: 415 error if the file type is unsupported
         """
-        public_files_path = self.templates_path / filename
-        return FileResponse(public_files_path)
+        filename = self._validate_string(filename)
+        path = self.templates_path / filename
+        try:
+            return await StaticWebFile(path=path).file_response  # Validate file
+        except ValidationError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
 
     async def serve_side_menu_files(self, filename: str) -> HTMLResponse:
         """Serve HTML files from the side-menu templates directory.
 
         This endpoint serves HTML files from the side-menu subdirectory.
-        Files include:
+        Files are:
          - about.html
          - contact.html
          - ourteam.html
@@ -402,25 +475,32 @@ class App:
 
         Returns:
             HTMLResponse: The requested HTML file
+
+        Raises:
+            HTTPException: 404 error if the requested file does not exist
         """
-        side_menu_path = self.templates_path / 'side-menu' / filename
-        return FileResponse(side_menu_path)
+        filename = self._validate_string(filename)
+        path = self.templates_path / 'side-menu' / filename
+        try:
+            return await StaticWebFile(path=path).file_response  # Validate file
+        except ValidationError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
     async def upload_document(
         self,
         file: UploadFile,
         client_cid: Optional[str] = None
-    ) -> JSONResponse:
+        ) -> JSONResponse:
         """
         API endpoint to handle document uploads from the frontend.
 
-    This method processes document uploads from the JavaScript frontend's uploadDocument
-    function. It integrates with the existing document processing pipeline to:
-    - Validate uploaded file format and size constraints
-    - Extract text content from PDF, DOC, DOCX, TXT files.
-    - Generate content identifiers (CIDs) for document tracking
-    - Store document metadata and content in the database
-    - Optionally associate uploads with client sessions for history tracking
+        This method processes document uploads from the JavaScript frontend's uploadDocument
+        function. It integrates with the existing document processing pipeline to:
+        - Validate uploaded file format and size constraints
+        - Extract text content from PDF, DOC, DOCX, TXT files.
+        - Generate content identifiers (CIDs) for document tracking
+        - Store document metadata and content in the database
+        - Optionally associate uploads with client sessions for history tracking
 
         Args:
             file (UploadFile): The uploaded file object from FastAPI's multipart form data.
@@ -479,6 +559,7 @@ class App:
             }
             ```
         """
+        return await self._upload_document(file, self.temp_storage, client_cid)
 
     async def search_sse_response(
         self,
@@ -486,7 +567,7 @@ class App:
         page: int = Query(1, description="Page number"),
         per_page: int = Query(20, description="Items per page"),
         client_id: str = None #Depends(search_history.get_or_create_client_id),
-    ) -> EventSourceResponse:
+        ) -> EventSourceResponse:
         """Server-Sent Events endpoint that streams search results incrementally.
 
         This endpoint implements Server-Sent Events (SSE) to provide a streaming
@@ -523,44 +604,30 @@ class App:
         """
         self._validate_query_params(q, page, per_page, client_id)
 
+        kwargs = {"q": q, "page": page, "per_page": per_page, "client_id": client_id, "logger": self.logger, "llm": self.llm}
+
+        def _event_dict(event: str, data: dict) -> dict:
+            return {"event": event, "data": json.dumps(data)}
+
         async def _event_generator():
             try:
-                # Initial event to indicate the search has started
-                yield {
-                    "event": "search_started",
-                    "data": json.dumps({
-                        "message": "Search started",
-                        "query": q
-                    })
-                }
+                yield _event_dict("search_started", {"message": "Search started", "query": q})
 
-                # Include client_id for search history tracking
-                async for result in self.search_function(q=q, page=page, per_page=per_page, client_id=client_id, logger=self.logger, llm=self.llm):
+                async for result in self._search_function(**kwargs):
                     # Send each result chunk as it becomes available
-                    yield {
-                        "event": "results_update",
-                        "data": json.dumps(result)
-                    }
+                    yield _event_dict("results_update", result)
 
                 # Final event to indicate the search is complete
-                yield {
-                    "event": "search_complete",
-                    "data": json.dumps({
-                        "message": "Search completed",
-                        "query": q
-                    })
-                }
+                yield _event_dict("search_complete", {"message": "Search completed", "query": q})
 
             except Exception as e:
-                self.logger.error(f"Error in SSE stream: {e}")
+                msg = f"Error in SSE stream: {e}"
+                self.logger.error(msg)
                 traceback.print_exc()
-                # Send error event
-                yield {
-                    "event": "error",
-                    "data": json.dumps({
-                        "message": str(e)
-                    })
-                }
+                yield _event_dict("error", {"message": msg})
+            finally:
+                if client_id is not None:
+                    self.perm_storage[client_id].append(self.temp_storage["current_sessions"].get(client_id, {}))
 
         return EventSourceResponse(_event_generator())
 
@@ -685,7 +752,8 @@ class App:
 
         # Validate string inputs
         string_validations = [
-            (name, 'name', False), (email, 'email', False),  (message, 'message', False), (subject, 'subject', False), (organization, 'organization', True)
+            (name, 'name', False), (email, 'email', False),  (message, 'message', False), 
+            (subject, 'subject', False), (organization, 'organization', True)
         ]
         cleaning_dict = {}
 
@@ -765,13 +833,13 @@ Message:
                 )
 
     async def account_create(self):
-        pass
+        raise NotImplementedError("Account creation endpoint not implemented yet.")
 
     async def account_delete(self):
-        pass
+        raise NotImplementedError("Account delete endpoint not implemented yet.")
 
     async def account_page(self):
-        pass
+        raise NotImplementedError("Account page endpoint not implemented yet.")
 
     @staticmethod
     def _validate_string(value: Any, var_name: str, skip_if_value_is_none: bool = False) -> None:
@@ -840,9 +908,17 @@ Message:
         )
         return app
 
-    def get_app(self) -> FastAPI:
-        app = FastAPI(title=self.TITLE, description=self.DESCRIPTION)
+    def make_app(self) -> FastAPI:
+        """
+        Configure and return the FastAPI application instance.
+        
+        Returns:
+            FastAPI: The configured FastAPI application instance.
 
+        Raises:
+            TypeError: If any route handler function is not callable.
+        """
+        app = FastAPI(title=self.TITLE, description=self.DESCRIPTION)
         app = self._add_middleware(app)
         app = self._map_static_files(app)
 
@@ -860,7 +936,7 @@ def get_upload_menu(mock_resources: Optional[dict] = None, mock_configs: Optiona
     configs = mock_configs or project_configs
     _resources = mock_resources or {}
     resources = {
-        "db": _resources.pop('db', READ_ONLY_DB),
+        "read_only_db": _resources.pop('read_only_db', READ_ONLY_DB),
         "llm": _resources.pop("llm", LLM),
         "logger": _resources.pop("logger", module_logger),
         "fastapi": _resources.pop("fastapi", FastAPI),
@@ -874,7 +950,7 @@ def get_side_menu(mock_resources: Optional[dict] = None, mock_configs: Optional[
     configs = mock_configs or project_configs
     _resources = mock_resources or {}
     resources = {
-        "db": _resources.pop('db', READ_ONLY_DB),
+        "read_only_db": _resources.pop('read_only_db', READ_ONLY_DB),
         "llm": _resources.pop("llm", LLM),
         "logger": _resources.pop("logger", module_logger),
         "fastapi": _resources.pop("fastapi", FastAPI),
@@ -884,11 +960,70 @@ def get_side_menu(mock_resources: Optional[dict] = None, mock_configs: Optional[
     return side_menu_instance
 
 
-def get_app(mock_resources: Optional[dict] = None, mock_configs: Optional[BaseModel] = None) -> FastAPI:
+
+
+DEFAULT_RESOURCE_KEYS = {
+    "read_only_db",
+    "llm",
+    "logger",
+    "fastapi",
+    "Jinja2Templates",
+    "email",
+    "side_menu",
+    "upload_menu",
+    "search_function",
+    "batch_processor"
+}
+
+def make_app(
+        mock_resources: Optional[dict[str, Any]] = None, 
+        mock_configs: Optional[BaseModel] = None,
+        ) -> FastAPI:
+    """
+    Factory function to create a new FastAPI instance for the American Law Search website's backend.
+
+    Args:
+        mock_resources (dict[str, Any], optional): A dictionary of callables to override injected defaults. Defaults to None.
+
+        Resources are:
+            - read_only_db (Database): Read-only database connection (default: READ_ONLY_DB)
+            - llm (AsyncLLMInterface): Language model instance (default: LLM)
+            - logger (logging.Logger): Logger instance (default: module_logger)
+            - fastapi (ModuleType): FastAPI class (default: FastAPI)
+            - Jinja2Templates (Jinja2Templates): Jinja2Templates class (default: Jinja2Templates)
+            - email (ModuleType): Email module (default: email)
+            - side_menu (SideMenu): SideMenu instance (default: get_side_menu())
+            - upload_menu (UploadMenu): UploadMenu instance (default: get_upload_menu())
+            - search_function (AsyncGenerator): Search function (default: search.function)
+
+        mock_configs (Configs, optional): A Configs object to override default initialization configurations. Defaults to None.
+
+        Configs attributes set upon initialization are:
+            - ADMIN_EMAIL (str): Admin email address
+            - EMAIL_SERVER (str): SMTP server address
+            - EMAIL_PORT (int): SMTP server port
+            - EMAIL_USERNAME (str): SMTP username
+            - EMAIL_PASSWORD (str): SMTP password
+            - ROOT_DIR (Path): Root directory of the project
+
+    Returns:
+        FastAPI: The configured FastAPI application instance.
+
+    Raises:
+        KeyError: If mock_resources contains unexpected keys.
+        AttributeError: If mock_configs contains unexpected attributes.
+        InitializationError: If there are unexpected errors during App initialization.
+    """
     configs = mock_configs or project_configs
     _resources = mock_resources or {}
+
+    if mock_resources is not None:
+        for key in _resources.keys():
+            if key not in DEFAULT_RESOURCE_KEYS:
+                raise KeyError(f"Unexpected resource key in mock_resources: {key}")
+
     resources = {
-        "db": _resources.pop('db', READ_ONLY_DB),
+        "read_only_db": _resources.pop('read_only_db', READ_ONLY_DB),
         "llm": _resources.pop("llm", LLM),
         "logger": _resources.pop("logger", module_logger),
         "fastapi": _resources.pop("fastapi", FastAPI),
@@ -897,13 +1032,56 @@ def get_app(mock_resources: Optional[dict] = None, mock_configs: Optional[BaseMo
         "side_menu": _resources.pop("side_menu", get_side_menu()),
         "upload_menu": _resources.pop("upload_menu", get_upload_menu()),
         "search_function": _resources.pop("search_function", search.function),
+        "upload_document": _resources.pop("upload_document", make_upload_document().upload_document),
+        "batch_processor": _resources.pop("batch_processor", None),
     }
-    app_instance = App(configs=configs, resources=resources)
-    return app_instance.get_app()
+
+    try:
+        app_instance = App(configs=configs, resources=resources)
+    except KeyError as e:
+        raise InitializationError(f"Failed to initialize App due to invalid resource key: {e}") from e
+    except AttributeError as e:
+        raise InitializationError(f"Failed to initialize App due to invalid config attribute: {e}") from e
+    except Exception as e:
+        raise InitializationError(f"Unexpected error initializing App: {e}") from e
+    else:
+        return app_instance
+
+def make_fastapi_app(
+        mock_resources: Optional[dict[str, Any]] = None, 
+        mock_configs: Optional[BaseModel] = None,
+        return_fastapi_instance: bool = True
+        ) -> FastAPI:
+    """
+    Convenience function to create and return a FastAPI instance.
+
+    Args:
+        mock_resources (dict[str, Any], optional): A dictionary of callables to override injected
+        defaults. Defaults to None.
+        mock_configs (Configs, optional): A Configs object to override default initialization
+        configurations. Defaults to None.
+        return_fastapi_instance (bool, optional): If True, return the FastAPI instance.
+        If False, return the App instance. Defaults to True.
+
+    Returns:
+        FastAPI: The configured FastAPI application instance.
+
+    Raises:
+        InitializationError: If there are errors during App initialization or FastAPI configuration.
+    """
+    try:
+        app_instance = make_app(mock_resources=mock_resources, mock_configs=mock_configs)
+    except Exception as e: # Re-raise errors.
+        raise InitializationError(f"Error creating App instance: {e}") from e
+
+    try:
+        return app_instance.make_app() if return_fastapi_instance else app_instance
+    except Exception as e:
+        raise InitializationError(f"Unexpected error configuring FastAPI app: {e}") from e
 
 
 # Set up the FastAPI app
-app = get_app()
+app = make_fastapi_app()
 
 
 if __name__ == '__main__':

@@ -35,7 +35,7 @@ Attributes:
     index_name (str): The name of the index HTML file.
 
 Public Methods:
-    get_app(): Configures and returns the FastAPI application instance.
+    make_app(): Configures and returns the FastAPI application instance.
     favicon(): Serves the favicon.ico file.
     serve_index(request): Serves the main index.html page.
     serve_public_files(filename): Serves files from the public directory.
@@ -423,19 +423,19 @@ def file_mime_type(self) -> str:
 * **Method:** True
 * **Class:** Document
 
-## get_app
+## make_app
 
 ```python
-def get_app(self) -> FastAPI:
+def make_app(self) -> FastAPI:
 ```
 * **Async:** False
 * **Method:** True
 * **Class:** App
 
-## get_app
+## make_app
 
 ```python
-def get_app(mock_resources: Optional[dict] = None, mock_configs: Optional[BaseModel] = None) -> FastAPI:
+def make_app(mock_resources: Optional[dict] = None, mock_configs: Optional[BaseModel] = None) -> FastAPI:
 ```
 * **Async:** False
 * **Method:** False

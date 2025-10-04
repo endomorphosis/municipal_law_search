@@ -17,11 +17,8 @@ from typing import Any, Dict
 
 
 # Import the class to be tested
-try:
-    from api_.database.database import Database, try_except
-except ImportError: # Damn import errors...
-    from app.api_.database.database import Database, try_except
-from configs import configs, Configs
+from app.api_.database.database import Database, try_except
+from app.configs import configs, Configs
 
 
 class TestTryExceptDecorator(unittest.TestCase):

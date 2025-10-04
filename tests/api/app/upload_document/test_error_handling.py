@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 
-from ._constants import UNSUPPORTED_FILE_TYPES, BAD_INPUT_TYPES
+from .constants import UNSUPPORTED_FILE_TYPES, BAD_INPUT_TYPES
 
 
 class TestErrorHandling:
