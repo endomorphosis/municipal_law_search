@@ -5,8 +5,12 @@ from typing import Any, Literal, Optional
 import logging
 from unittest.mock import MagicMock, AsyncMock
 
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
-import torch
 from pydantic import (
     BaseModel, 
     computed_field, 
@@ -36,6 +40,8 @@ def _USE_GPU_FOR_COSINE_SIMILARITY() -> str:
     Returns:
         str: "cuda" if GPU is available, "cpu" otherwise.
     """
+    if not TORCH_AVAILABLE:
+        return "cpu"
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
